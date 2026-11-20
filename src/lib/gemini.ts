@@ -41,7 +41,10 @@ function filePart(file: InlineFile) {
   return { inlineData: { mimeType: file.mimeType, data: file.base64 } };
 }
 
-function parseJson<T>(text: string | undefined, schema: z.ZodType<T>): T {
+function parseJson<Schema extends z.ZodTypeAny>(
+  text: string | undefined,
+  schema: Schema
+): z.output<Schema> {
   if (!text) {
     throw new Error("لم يرجع نموذج الذكاء الاصطناعي أي رد.");
   }
@@ -87,8 +90,8 @@ const gradingResultSchema = z.object({
   feedback_summary: z.string().default(""),
 });
 
-export type GradedQuestion = z.infer<typeof gradedQuestionSchema>;
-export type GradingResult = z.infer<typeof gradingResultSchema>;
+export type GradedQuestion = z.output<typeof gradedQuestionSchema>;
+export type GradingResult = z.output<typeof gradingResultSchema>;
 
 const gradingResponseSchema = {
   type: Type.OBJECT,
@@ -210,7 +213,7 @@ export async function gradeSubmission(
       ...q,
       awarded_mark: awarded,
       is_correct: q.is_correct && awarded >= maxMark,
-      page_index: Math.min(q.page_index, maxPage),
+      page_index: Math.min(q.page_index ?? 0, maxPage),
     };
   });
 
@@ -239,7 +242,7 @@ const generatedExamsSchema = z.object({
   models: z.array(examModelSchema).min(1),
 });
 
-export type GeneratedExams = z.infer<typeof generatedExamsSchema>;
+export type GeneratedExams = z.output<typeof generatedExamsSchema>;
 
 const examResponseSchema = {
   type: Type.OBJECT,

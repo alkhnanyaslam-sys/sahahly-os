@@ -179,16 +179,29 @@ async function parseImportFile(file: File): Promise<ImportRow[]> {
     return mapRecords(result.data);
   }
 
-  const XLSX = await import("xlsx");
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: "array" });
-  const sheetName = workbook.SheetNames[0];
-  const sheet = sheetName ? workbook.Sheets[sheetName] : undefined;
-  if (!sheet) return [];
-  const records = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-    defval: "",
-    raw: false,
+  const ExcelJS = await import("exceljs");
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await file.arrayBuffer());
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) return [];
+  if (worksheet.rowCount > 1001) {
+    throw new Error("Workbook exceeds the supported row limit.");
+  }
+
+  const headerRow = worksheet.getRow(1);
+  const headers = Array.from({ length: headerRow.cellCount }, (_, index) =>
+    headerRow.getCell(index + 1).text
+  );
+  const records: Record<string, unknown>[] = [];
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const record: Record<string, unknown> = {};
+    headers.forEach((header, index) => {
+      if (header) record[header] = row.getCell(index + 1).text;
+    });
+    records.push(record);
   });
+
   return mapRecords(records);
 }
 
@@ -533,8 +546,8 @@ export default function StudentsManager({
     setImportResult(null);
 
     const lower = file.name.toLowerCase();
-    if (![".xlsx", ".xls", ".csv"].some((ext) => lower.endsWith(ext))) {
-      setFeedback({ kind: "error", text: "الصيغة غير مدعومة. اختر ملف Excel أو CSV." });
+    if (![".xlsx", ".csv"].some((ext) => lower.endsWith(ext))) {
+      setFeedback({ kind: "error", text: "الصيغة غير مدعومة. اختر ملف Excel بصيغة XLSX أو CSV." });
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
@@ -802,7 +815,7 @@ export default function StudentsManager({
             <input
               ref={importInputRef}
               type="file"
-              accept=".xlsx,.xls,.csv"
+              accept=".xlsx,.csv"
               className="sr-only"
               onChange={(e) => void handleImportFile(e.target.files?.[0])}
             />
