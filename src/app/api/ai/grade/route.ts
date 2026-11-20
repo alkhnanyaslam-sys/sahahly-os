@@ -3,9 +3,20 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { authErrorResponse, requireApiAuth } from "@/lib/auth";
 import { runAiGrading } from "@/lib/ai-grading";
 import { aiGradeSchema, firstZodError } from "@/lib/validation";
+import type { SubmissionStatus } from "@/types/database"; // عدّل المسار حسب مكان ملف الأنواع عندك
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
+
+interface SubmissionRow {
+  id: string;
+  assessment_id: string;
+  status: SubmissionStatus;
+}
+
+interface AssessmentRow {
+  teacher_id: string;
+}
 
 /**
  * تشغيل (أو إعادة تشغيل) التصحيح الآلي لتسليم واحد.
@@ -64,11 +75,13 @@ export async function POST(request: Request) {
     }
   }
 
-  const { data: submission, error: submissionError } = await admin
+  const { data: rawSubmission, error: submissionError } = await admin
     .from("submissions")
     .select("id, assessment_id, status")
     .eq("id", submission_id)
     .maybeSingle();
+
+  const submission = rawSubmission as SubmissionRow | null;
 
   if (submissionError) {
     return Response.json(
@@ -82,11 +95,13 @@ export async function POST(request: Request) {
   }
 
   if (teacherId) {
-    const { data: assessment } = await admin
+    const { data: rawAssessment } = await admin
       .from("assessments")
       .select("teacher_id")
       .eq("id", submission.assessment_id)
       .maybeSingle();
+
+    const assessment = rawAssessment as AssessmentRow | null;
 
     if (!assessment || assessment.teacher_id !== teacherId) {
       return Response.json({ error: "لم يتم العثور على التسليم." }, { status: 404 });
@@ -110,7 +125,7 @@ export async function POST(request: Request) {
 
     const { error: resetError } = await admin
       .from("submissions")
-      .update({ status: "pending_ai" })
+      .update({ status: "pending_ai" } as never)
       .eq("id", submission_id)
       .eq("status", "needs_review");
 
