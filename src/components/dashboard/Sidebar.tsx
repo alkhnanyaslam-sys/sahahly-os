@@ -6,6 +6,7 @@ import { useState } from "react";
 import {
   BarChart3,
   ClipboardCheck,
+  ClipboardList,
   FileStack,
   GraduationCap,
   LayoutDashboard,
@@ -37,6 +38,12 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     icon: LayoutDashboard,
     exact: true,
     permission: "dashboard.view",
+  },
+  {
+    href: "/dashboard/assessments",
+    label: "الواجبات والامتحانات",
+    icon: ClipboardList,
+    permission: "assessments.manage",
   },
   {
     href: "/dashboard/grading",
@@ -207,4 +214,4 @@ export default function Sidebar({ userName, roleLabel, permissions }: SidebarPro
       ) : null}
     </>
   );
-}
+    }
