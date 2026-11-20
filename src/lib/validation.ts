@@ -105,7 +105,7 @@ export const whatsappSendSchema = z.object({
   message: z.string().trim().min(1).max(4000),
   document_url: z.string().url().optional(),
   document_filename: z.string().max(200).optional(),
-  payload: z.record(z.unknown()).default({}),
+  payload: z.record(z.string(), z.unknown()).default({}),
 });
 
 export type WhatsAppSendInput = z.infer<typeof whatsappSendSchema>;
