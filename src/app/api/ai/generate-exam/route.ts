@@ -85,7 +85,7 @@ export async function POST(request: Request) {
     .from("teachers")
     .select("subject")
     .eq("id", auth.teacherId)
-    .maybeSingle();
+    .maybeSingle<{ subject: string }>();
 
   try {
     const exams = await generateParallelExams({
