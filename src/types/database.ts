@@ -141,9 +141,9 @@ export interface WhatsAppLog {
 }
 
 type TableDef<Row, Required extends keyof Row = never> = {
-  Row: Row;
-  Insert: Pick<Row, Required> & Partial<Omit<Row, Required>>;
-  Update: Partial<Row>;
+  Row: Row & Record<string, unknown>;
+  Insert: (Pick<Row, Required> & Partial<Omit<Row, Required>>) & Record<string, unknown>;
+  Update: Partial<Row> & Record<string, unknown>;
   Relationships: [];
 };
 
