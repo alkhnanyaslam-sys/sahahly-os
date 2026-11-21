@@ -20,6 +20,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { siteConfig } from "@/config/site";
 import { cn } from "@/lib/utils";
+import ThemeToggle from "@/components/ThemeToggle";
 
 export interface SidebarItem {
   href: string;
@@ -155,6 +156,7 @@ export default function Sidebar({ userName, roleLabel, permissions }: SidebarPro
           <p className="truncate text-sm font-bold text-ink">{userName}</p>
           <p className="text-xs text-ink-muted">{roleLabel}</p>
         </div>
+        <ThemeToggle className="mb-2 w-full justify-start bg-transparent" />
         <button
           type="button"
           onClick={handleSignOut}
@@ -177,14 +179,17 @@ export default function Sidebar({ userName, roleLabel, permissions }: SidebarPro
             {siteConfig.name}
           </span>
         </Link>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          aria-label="فتح القائمة"
-          className="flex h-10 w-10 items-center justify-center rounded-lg border border-line text-ink-soft"
-        >
-          <Menu size={20} aria-hidden="true" />
-        </button>
+        <div className="flex items-center gap-2">
+          <ThemeToggle className="px-2" />
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            aria-label="فتح القائمة"
+            className="flex h-10 w-10 items-center justify-center rounded-lg border border-line text-ink-soft"
+          >
+            <Menu size={20} aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       <aside className="no-print hidden w-64 shrink-0 border-l border-line bg-white lg:sticky lg:top-0 lg:block lg:h-screen">

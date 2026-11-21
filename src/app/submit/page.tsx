@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { siteConfig } from "@/config/site";
+import ThemeToggle from "@/components/ThemeToggle";
 import { cn, formatDateTimeAr } from "@/lib/utils";
 
 interface AvailableAssessment {
@@ -236,14 +237,17 @@ export default function SubmitPage() {
 
   return (
     <main className="mx-auto flex min-h-[calc(100vh-10rem)] w-full max-w-xl flex-col px-4 py-8 sm:py-12">
-      <Link href="/" className="flex items-center justify-center gap-2 text-sky-600">
-        <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-sky-600 text-white">
-          <GraduationCap size={22} aria-hidden="true" />
-        </span>
-        <span dir="ltr" lang="en" className="font-latin text-xl font-bold">
-          {siteConfig.name}
-        </span>
-      </Link>
+      <div className="flex items-center justify-between gap-2">
+        <Link href="/" className="flex items-center gap-2 text-sky-600">
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-sky-600 text-white">
+            <GraduationCap size={22} aria-hidden="true" />
+          </span>
+          <span dir="ltr" lang="en" className="font-latin text-xl font-bold">
+            {siteConfig.name}
+          </span>
+        </Link>
+        <ThemeToggle className="px-2" />
+      </div>
 
       <h1 className="mt-6 text-center text-2xl font-bold text-ink">بوابة تسليم الطلاب</h1>
       <p className="mt-1 text-center text-sm text-ink-muted">

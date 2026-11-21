@@ -46,7 +46,20 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ar" dir="rtl" className={`${cairo.variable} ${inter.variable}`}>
+    <html
+      lang="ar"
+      dir="rtl"
+      suppressHydrationWarning
+      className={`${cairo.variable} ${inter.variable}`}
+    >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try { if (document.cookie.split('; ').includes('sahahly-theme=dark')) document.documentElement.classList.add('dark'); } catch {}",
+          }}
+        />
+      </head>
       <body className="flex min-h-screen flex-col bg-surface-muted text-ink">
         <div className="flex-1">{children}</div>
         <Footer />

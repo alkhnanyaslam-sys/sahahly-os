@@ -23,17 +23,17 @@ const config: Config = {
           900: "#0C4A6E",
         },
         surface: {
-          DEFAULT: "#FFFFFF",
-          muted: "#F8FAFC",
+          DEFAULT: "rgb(var(--surface) / <alpha-value>)",
+          muted: "rgb(var(--surface-muted) / <alpha-value>)",
         },
         line: {
-          DEFAULT: "#E2E8F0",
-          strong: "#CBD5E1",
+          DEFAULT: "rgb(var(--line) / <alpha-value>)",
+          strong: "rgb(var(--line-strong) / <alpha-value>)",
         },
         ink: {
-          DEFAULT: "#0F172A",
-          soft: "#334155",
-          muted: "#64748B",
+          DEFAULT: "rgb(var(--ink) / <alpha-value>)",
+          soft: "rgb(var(--ink-soft) / <alpha-value>)",
+          muted: "rgb(var(--ink-muted) / <alpha-value>)",
         },
         success: {
           50: "#F0FDF4",

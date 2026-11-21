@@ -4,12 +4,37 @@
 
 @layer base {
   :root {
+    color-scheme: light;
     --background: #f8fafc;
     --foreground: #0f172a;
     --border: #e2e8f0;
     --primary: #0284c7;
     --primary-hover: #0369a1;
     --primary-soft: #e0f2fe;
+    --surface: 255 255 255;
+    --surface-muted: 248 250 252;
+    --line: 226 232 240;
+    --line-strong: 203 213 225;
+    --ink: 15 23 42;
+    --ink-soft: 51 65 85;
+    --ink-muted: 71 85 105;
+  }
+
+  :root.dark {
+    color-scheme: dark;
+    --background: #0b1220;
+    --foreground: #f1f5f9;
+    --border: #293548;
+    --primary: #38bdf8;
+    --primary-hover: #7dd3fc;
+    --primary-soft: #102b3d;
+    --surface: 17 27 43;
+    --surface-muted: 11 18 32;
+    --line: 41 53 72;
+    --line-strong: 58 73 96;
+    --ink: 241 245 249;
+    --ink-soft: 203 213 225;
+    --ink-muted: 156 173 194;
   }
 
   * {
@@ -139,6 +164,81 @@
   .table-clean tbody tr:hover {
     @apply bg-surface-muted;
   }
+}
+
+html.dark .bg-white,
+html.dark .bg-surface {
+  background-color: rgb(var(--surface)) !important;
+}
+
+html.dark .bg-surface-muted {
+  background-color: rgb(var(--surface-muted)) !important;
+}
+
+html.dark .text-ink {
+  color: rgb(var(--ink)) !important;
+}
+
+html.dark .text-ink-soft {
+  color: rgb(var(--ink-soft)) !important;
+}
+
+html.dark .text-ink-muted {
+  color: rgb(var(--ink-muted)) !important;
+}
+
+html.dark .border-line {
+  border-color: rgb(var(--line)) !important;
+}
+
+html.dark .border-line-strong {
+  border-color: rgb(var(--line-strong)) !important;
+}
+
+html.dark .text-sky-600,
+html.dark .text-sky-700,
+html.dark .text-sky-800 {
+  color: #7dd3fc;
+}
+
+html.dark .bg-sky-50,
+html.dark .bg-sky-100 {
+  background-color: #102b3d;
+}
+
+html.dark .border-sky-100,
+html.dark .border-sky-200 {
+  border-color: #28506a;
+}
+
+html.dark .text-success-600,
+html.dark .text-success-700 {
+  color: #86efac;
+}
+
+html.dark .bg-success-50,
+html.dark .bg-success-100 {
+  background-color: #123323;
+}
+
+html.dark .text-danger-600,
+html.dark .text-danger-700 {
+  color: #fca5a5;
+}
+
+html.dark .bg-danger-50,
+html.dark .bg-danger-100 {
+  background-color: #3b1d24;
+}
+
+html.dark .text-warning-600,
+html.dark .text-warning-700 {
+  color: #fcd34d;
+}
+
+html.dark .bg-warning-50,
+html.dark .bg-warning-100 {
+  background-color: #3b2d12;
 }
 
 @media print {
