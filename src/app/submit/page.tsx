@@ -54,6 +54,44 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} م.ب`;
 }
 
+async function optimizeImageForGrading(file: File): Promise<File> {
+  if (!file.type.startsWith("image/") || file.size <= 2 * 1024 * 1024) return file;
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("تعذر تجهيز الصورة للرفع."));
+      image.src = objectUrl;
+    });
+
+    const scale = Math.min(1, 2200 / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+    if (!context) return file;
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.88)
+    );
+    if (!blob || blob.size >= file.size) return file;
+
+    const optimizedName = `${file.name.replace(/\\.[^.]+$/, "")}.jpg`;
+    return new File([blob], optimizedName, { type: "image/jpeg", lastModified: file.lastModified });
+  } catch {
+    return file;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 export default function SubmitPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -154,13 +192,14 @@ export default function SubmitPage() {
     setProgress(0);
 
     try {
+      const preparedFiles = await Promise.all(files.map(optimizeImageForGrading));
       const urlResponse = await fetch("/api/submissions/upload-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           student_code: studentCode,
           assessment_id: selectedId,
-          files: files.map((file) => ({ content_type: file.type })),
+          files: preparedFiles.map((file) => ({ content_type: file.type })),
         }),
       });
       const urlBody = (await urlResponse.json().catch(() => ({}))) as {
@@ -177,8 +216,8 @@ export default function SubmitPage() {
       const supabase = createClient();
       const uploads = urlBody.uploads;
 
-      for (let i = 0; i < files.length; i += 1) {
-        const file = files[i];
+      for (let i = 0; i < preparedFiles.length; i += 1) {
+        const file = preparedFiles[i];
         const target = uploads[i];
         if (!file || !target) continue;
 
