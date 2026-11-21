@@ -89,6 +89,26 @@ export function permissionsFor(role: AppRole): readonly Permission[] {
  * البحث يتم بعميل الخدمة لكنه مقيّد حصريًا بمعرّف/بريد المستخدم الموثّق،
  * لذلك لا يتسرّب منه أي سجل يخص شخصًا آخر.
  */
+function isMissingSuspensionColumn(error: { code?: string; message?: string } | null) {
+  return error?.code === "42703"
+    || error?.code === "PGRST204"
+    || Boolean(error?.message && /is_suspended/i.test(error.message) && /column|schema cache/i.test(error.message));
+}
+
+async function isTeacherSuspended(
+  admin: ReturnType<typeof createAdminClient>,
+  teacherId: string
+): Promise<boolean> {
+  const { data, error } = await admin
+    .from("teachers")
+    .select("is_suspended")
+    .eq("id", teacherId)
+    .maybeSingle();
+
+  if (error) return !isMissingSuspensionColumn(error);
+  return !data || Boolean(data.is_suspended);
+}
+
 export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
   const supabase = await createClient();
   const {
@@ -106,7 +126,7 @@ export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
     .eq("id", user.id)
     .maybeSingle();
 
-  if (teacher) {
+  if (teacher && !(await isTeacherSuspended(admin, teacher.id))) {
     return {
       userId: user.id,
       email: user.email ?? null,
@@ -122,7 +142,10 @@ export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
     .eq("id", user.id)
     .maybeSingle();
 
-  if (assistantById) {
+  if (
+    assistantById
+    && !(await isTeacherSuspended(admin, assistantById.teacher_id))
+  ) {
     return {
       userId: user.id,
       email: user.email ?? null,
@@ -139,7 +162,10 @@ export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
       .eq("email", user.email)
       .maybeSingle();
 
-    if (assistantByEmail) {
+    if (
+      assistantByEmail
+      && !(await isTeacherSuspended(admin, assistantByEmail.teacher_id))
+    ) {
       return {
         userId: user.id,
         email: user.email,
