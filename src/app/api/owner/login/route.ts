@@ -11,7 +11,8 @@ import { createAdminClient, createClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 
 const MAX_BODY_BYTES = 8192;
-const GENERIC_ERROR = "تعذّر إكمال الطلب. تحقق من الرمز وحاول مرة أخرى.";
+const MAX_PASSWORD_LENGTH = 200;
+const GENERIC_ERROR = "بيانات الدخول غير صحيحة.";
 const RESPONSE_HEADERS = {
   "Cache-Control": "no-store, max-age=0",
   "X-Robots-Tag": "noindex, nofollow",
@@ -119,34 +120,12 @@ async function readBody(request: NextRequest): Promise<unknown | null> {
   }
 }
 
-async function sendCode(email: string) {
-  if (email !== OWNER_EMAIL) return jsonError();
-
-  try {
-    const supabase = await createClient();
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false },
-    });
-
-    if (error) {
-      return NextResponse.json(
-        { error: "تعذّر إرسال الرمز. حاول مرة أخرى لاحقًا." },
-        { status: 503, headers: RESPONSE_HEADERS }
-      );
-    }
-
-    return jsonOk({ ok: true });
-  } catch {
-    return NextResponse.json(
-      { error: "تعذّر إرسال الرمز. حاول مرة أخرى لاحقًا." },
-      { status: 503, headers: RESPONSE_HEADERS }
-    );
-  }
-}
-
-async function verifyCode(request: NextRequest, email: string, token: string) {
-  if (email !== OWNER_EMAIL || !/^\d{6,8}$/.test(token)) {
+async function loginWithPassword(
+  request: NextRequest,
+  email: string,
+  password: string
+) {
+  if (email !== OWNER_EMAIL || !password || password.length > MAX_PASSWORD_LENGTH) {
     return jsonError();
   }
 
@@ -181,10 +160,10 @@ async function verifyCode(request: NextRequest, email: string, token: string) {
     }
 
     supabase = await createClient();
-    const { data: verification, error: verificationError } =
-      await supabase.auth.verifyOtp({ email, token, type: "email" });
+    const { data: signIn, error: signInError } =
+      await supabase.auth.signInWithPassword({ email, password });
 
-    const user = verification.user;
+    const user = signIn?.user ?? null;
     const emailMatches = user?.email?.trim().toLowerCase() === OWNER_EMAIL;
     const membership = user && emailMatches
       ? await admin
@@ -193,16 +172,11 @@ async function verifyCode(request: NextRequest, email: string, token: string) {
           .eq("user_id", user.id)
           .maybeSingle()
       : null;
-    const membershipIsValid = membership
-      ? (!membership.error || isMissingOptionalOwnerSchema(membership.error))
-      : false;
+    const membershipIsValid = Boolean(
+      membership && !membership.error && membership.data
+    );
 
-    if (
-      verificationError
-      || !user
-      || !emailMatches
-      || !membershipIsValid
-    ) {
+    if (signInError || !user || !emailMatches || !membershipIsValid) {
       await supabase.auth.signOut();
       if (attemptId) await completeLoginAttempt(admin, attemptId, "failure");
       attemptId = null;
@@ -272,7 +246,7 @@ async function verifyCode(request: NextRequest, email: string, token: string) {
       try {
         await supabase.auth.signOut();
       } catch {
-        // Keep the generic verification response even if cleanup fails.
+        // Keep the generic response even if cleanup fails.
       }
     }
     if (admin && attemptId) {
@@ -288,16 +262,15 @@ export async function POST(request: NextRequest) {
   const body = await readBody(request);
   if (!body || typeof body !== "object") return jsonError();
 
-  const payload = body as { action?: unknown; email?: unknown; token?: unknown };
+  const payload = body as { email?: unknown; password?: unknown };
   const email = typeof payload.email === "string"
     ? payload.email.trim().toLowerCase()
     : "";
   if (!email || email.length > 254) return jsonError();
 
-  if (payload.action === "send") return sendCode(email);
-  if (payload.action === "verify" && typeof payload.token === "string") {
-    return verifyCode(request, email, payload.token.trim());
+  if (typeof payload.password === "string") {
+    return loginWithPassword(request, email, payload.password);
   }
 
   return jsonError();
-}
+      }
