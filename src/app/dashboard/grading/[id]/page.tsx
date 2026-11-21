@@ -57,19 +57,40 @@ export default async function GradingReviewPage({
     redirect("/dashboard/grading?status=pending_ai");
   }
 
-  const { data: student } = await admin
-    .from("students")
-    .select("name, student_code")
-    .eq("id", submission.student_id)
-    .maybeSingle();
+  const filePaths = Array.isArray(submission.raw_files_urls)
+    ? submission.raw_files_urls.filter(
+        (item): item is string => typeof item === "string" && item.length > 0
+      )
+    : [];
 
-  const { data: gradeRows } = await admin
-    .from("question_grades")
-    .select("*")
-    .eq("submission_id", submission.id)
-    .order("question_number", { ascending: true });
+  const [studentResult, gradesResult, rawFilesResult, gradedFileResult] =
+    await Promise.all([
+      admin
+        .from("students")
+        .select("name, student_code")
+        .eq("id", submission.student_id)
+        .maybeSingle(),
+      admin
+        .from("question_grades")
+        .select(
+          "question_number, topic_tag, max_mark, awarded_mark, is_correct, ai_comment, bounding_box, page_index"
+        )
+        .eq("submission_id", submission.id)
+        .order("question_number", { ascending: true }),
+      filePaths.length > 0
+        ? admin.storage
+            .from(RAW_BUCKET)
+            .createSignedUrls(filePaths, SIGNED_URL_TTL_SECONDS)
+        : Promise.resolve({ data: null }),
+      submission.graded_pdf_url
+        ? admin.storage
+            .from(GRADED_BUCKET)
+            .createSignedUrl(submission.graded_pdf_url, SIGNED_URL_TTL_SECONDS)
+        : Promise.resolve({ data: null }),
+    ]);
 
-  const grades: WorkspaceGrade[] = (gradeRows ?? []).map((row) => ({
+  const student = studentResult.data;
+  const grades: WorkspaceGrade[] = (gradesResult.data ?? []).map((row) => ({
     question_number: row.question_number,
     topic_tag: row.topic_tag,
     max_mark: row.max_mark,
@@ -80,35 +101,14 @@ export default async function GradingReviewPage({
     page_index: row.page_index ?? 0,
   }));
 
-  const filePaths = Array.isArray(submission.raw_files_urls)
-    ? submission.raw_files_urls.filter(
-        (item): item is string => typeof item === "string" && item.length > 0
-      )
-    : [];
-
-  const pages: WorkspacePage[] = [];
-  if (filePaths.length > 0) {
-    const { data: signedList } = await admin.storage
-      .from(RAW_BUCKET)
-      .createSignedUrls(filePaths, SIGNED_URL_TTL_SECONDS);
-
-    const urlByPath = new Map(
-      (signedList ?? []).map((item) => [item.path, item.signedUrl])
-    );
-
-    for (const path of filePaths) {
-      const url = urlByPath.get(path);
-      if (url) pages.push({ url, kind: pageKind(path) });
-    }
-  }
-
-  let gradedPdfUrl: string | null = null;
-  if (submission.graded_pdf_url) {
-    const { data: signed } = await admin.storage
-      .from(GRADED_BUCKET)
-      .createSignedUrl(submission.graded_pdf_url, SIGNED_URL_TTL_SECONDS);
-    gradedPdfUrl = signed?.signedUrl ?? null;
-  }
+  const urlByPath = new Map(
+    (rawFilesResult.data ?? []).map((item) => [item.path, item.signedUrl])
+  );
+  const pages: WorkspacePage[] = filePaths.flatMap((path) => {
+    const url = urlByPath.get(path);
+    return url ? [{ url, kind: pageKind(path) }] : [];
+  });
+  const gradedPdfUrl = gradedFileResult.data?.signedUrl ?? null;
 
   const canApprove =
     hasPermission(auth.role, "grading.approve") &&

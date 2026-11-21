@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
@@ -149,18 +149,34 @@ export default function GradingWorkspace({
   const displayTotal = readOnly ? (finalScore ?? aiScore ?? liveTotal) : liveTotal;
 
   const currentPage = pages[pageIndex];
-  const pageGrades = grades.filter((g) => g.page_index === pageIndex);
+  const pageGrades = useMemo(
+    () => grades.filter((grade) => grade.page_index === pageIndex),
+    [grades, pageIndex]
+  );
 
-  function updateEdit(questionNumber: number, patch: Partial<EditableGrade>) {
-    setEdits((prev) => ({
-      ...prev,
-      [questionNumber]: {
-        awarded: prev[questionNumber]?.awarded ?? "0",
-        comment: prev[questionNumber]?.comment ?? "",
-        ...patch,
-      },
-    }));
-  }
+  const updateEdit = useCallback(
+    (questionNumber: number, patch: Partial<EditableGrade>) => {
+      setEdits((prev) => ({
+        ...prev,
+        [questionNumber]: {
+          awarded: prev[questionNumber]?.awarded ?? "0",
+          comment: prev[questionNumber]?.comment ?? "",
+          ...patch,
+        },
+      }));
+    },
+    []
+  );
+
+  const activateQuestion = useCallback(
+    (questionNumber: number, questionPage: number) => {
+      setActiveQuestion(questionNumber);
+      if (questionPage !== pageIndex && questionPage < pages.length) {
+        setPageIndex(questionPage);
+      }
+    },
+    [pageIndex, pages.length]
+  );
 
   async function handleApprove() {
     setError(null);
@@ -285,6 +301,8 @@ export default function GradingWorkspace({
                 <img
                   src={currentPage.url}
                   alt={`صفحة ${pageIndex + 1} من ورقة الطالب`}
+                  decoding="async"
+                  fetchPriority="high"
                   className="block h-auto w-full rounded-lg border border-line bg-white"
                 />
                 {pageGrades.map((grade) => {
@@ -342,95 +360,19 @@ export default function GradingWorkspace({
                 لا توجد أسئلة مستخرجة لهذه الورقة.
               </p>
             ) : (
-              grades.map((grade) => {
-                const edit = edits[grade.question_number];
-                const parsed = parsedMarks.get(grade.question_number);
-                const invalid = parsed === null;
-                const color = COLOR_CLASSES[markColor(grade, parsed ?? 0)];
-                const isActive = activeQuestion === grade.question_number;
-
-                return (
-                  <article
-                    key={grade.question_number}
-                    onClick={() => {
-                      setActiveQuestion(grade.question_number);
-                      if (grade.page_index !== pageIndex && grade.page_index < pages.length) {
-                        setPageIndex(grade.page_index);
-                      }
-                    }}
-                    className={cn(
-                      "rounded-lg border p-3 transition-colors",
-                      isActive ? "border-sky-400 bg-sky-50" : "border-line bg-white"
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-bold text-ink">
-                          السؤال {grade.question_number}
-                        </p>
-                        {grade.topic_tag ? (
-                          <p className="text-xs text-ink-muted">{grade.topic_tag}</p>
-                        ) : null}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn("rounded-md px-2 py-0.5 text-xs font-bold", color.chip)}
-                        >
-                          {parsed !== null && parsed !== undefined
-                            ? parsed >= grade.max_mark
-                              ? "صحيح"
-                              : parsed <= 0
-                                ? "خطأ"
-                                : "جزئي"
-                            : "—"}
-                        </span>
-                        <label className="sr-only" htmlFor={`mark-${grade.question_number}`}>
-                          درجة السؤال {grade.question_number}
-                        </label>
-                        <input
-                          id={`mark-${grade.question_number}`}
-                          type="text"
-                          inputMode="decimal"
-                          dir="ltr"
-                          value={edit?.awarded ?? ""}
-                          disabled={readOnly || submitting}
-                          onChange={(e) =>
-                            updateEdit(grade.question_number, { awarded: e.target.value })
-                          }
-                          aria-invalid={invalid}
-                          className={cn(
-                            "input w-16 px-2 py-1.5 text-center",
-                            invalid ? "border-danger-600 focus:border-danger-600" : ""
-                          )}
-                        />
-                        <span className="text-sm font-semibold text-ink-muted">
-                          / {grade.max_mark}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="mt-3">
-                      <label
-                        htmlFor={`comment-${grade.question_number}`}
-                        className="mb-1 block text-xs font-semibold text-ink-muted"
-                      >
-                        التعليق
-                      </label>
-                      <textarea
-                        id={`comment-${grade.question_number}`}
-                        rows={2}
-                        value={edit?.comment ?? ""}
-                        disabled={readOnly || submitting}
-                        onChange={(e) =>
-                          updateEdit(grade.question_number, { comment: e.target.value })
-                        }
-                        placeholder={readOnly ? "—" : "أضف تعليقًا عربيًا للطالب (اختياري)"}
-                        className="input resize-none text-sm"
-                      />
-                    </div>
-                  </article>
-                );
-              })
+              grades.map((grade) => (
+                <QuestionGradeCard
+                  key={grade.question_number}
+                  grade={grade}
+                  edit={edits[grade.question_number]}
+                  parsed={parsedMarks.get(grade.question_number)}
+                  readOnly={readOnly}
+                  submitting={submitting}
+                  isActive={activeQuestion === grade.question_number}
+                  onActivate={activateQuestion}
+                  onEdit={updateEdit}
+                />
+              ))
             )}
           </div>
 
@@ -516,4 +458,99 @@ export default function GradingWorkspace({
       </div>
     </div>
   );
-    }
+}
+
+type QuestionGradeCardProps = {
+  grade: WorkspaceGrade;
+  edit: EditableGrade | undefined;
+  parsed: number | null | undefined;
+  readOnly: boolean;
+  submitting: boolean;
+  isActive: boolean;
+  onActivate: (questionNumber: number, pageIndex: number) => void;
+  onEdit: (questionNumber: number, patch: Partial<EditableGrade>) => void;
+};
+
+const QuestionGradeCard = memo(function QuestionGradeCard({
+  grade,
+  edit,
+  parsed,
+  readOnly,
+  submitting,
+  isActive,
+  onActivate,
+  onEdit,
+}: QuestionGradeCardProps) {
+  const invalid = parsed === null;
+  const color = COLOR_CLASSES[markColor(grade, parsed ?? 0)];
+
+  return (
+    <article
+      onClick={() => onActivate(grade.question_number, grade.page_index)}
+      className={cn(
+        "rounded-lg border p-3 transition-colors",
+        isActive ? "border-sky-400 bg-sky-50" : "border-line bg-white"
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-bold text-ink">السؤال {grade.question_number}</p>
+          {grade.topic_tag ? (
+            <p className="text-xs text-ink-muted">{grade.topic_tag}</p>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={cn("rounded-md px-2 py-0.5 text-xs font-bold", color.chip)}>
+            {parsed !== null && parsed !== undefined
+              ? parsed >= grade.max_mark
+                ? "صحيح"
+                : parsed <= 0
+                  ? "خطأ"
+                  : "جزئي"
+              : "—"}
+          </span>
+          <label className="sr-only" htmlFor={`mark-${grade.question_number}`}>
+            درجة السؤال {grade.question_number}
+          </label>
+          <input
+            id={`mark-${grade.question_number}`}
+            type="text"
+            inputMode="decimal"
+            dir="ltr"
+            value={edit?.awarded ?? ""}
+            disabled={readOnly || submitting}
+            onChange={(event) =>
+              onEdit(grade.question_number, { awarded: event.target.value })
+            }
+            aria-invalid={invalid}
+            className={cn(
+              "input w-16 px-2 py-1.5 text-center",
+              invalid ? "border-danger-600 focus:border-danger-600" : ""
+            )}
+          />
+          <span className="text-sm font-semibold text-ink-muted">/ {grade.max_mark}</span>
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <label
+          htmlFor={`comment-${grade.question_number}`}
+          className="mb-1 block text-xs font-semibold text-ink-muted"
+        >
+          التعليق
+        </label>
+        <textarea
+          id={`comment-${grade.question_number}`}
+          rows={2}
+          value={edit?.comment ?? ""}
+          disabled={readOnly || submitting}
+          onChange={(event) =>
+            onEdit(grade.question_number, { comment: event.target.value })
+          }
+          placeholder={readOnly ? "—" : "أضف تعليقًا عربيًا للطالب (اختياري)"}
+          className="input resize-none text-sm"
+        />
+      </div>
+    </article>
+  );
+});
