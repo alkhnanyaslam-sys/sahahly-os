@@ -287,16 +287,25 @@ export async function DELETE(request: Request) {
     return Response.json({ error: "لم يتم العثور على الواجب." }, { status: 404 });
   }
 
-  const { data: submissions, error: submissionsError } = await admin
-    .from("submissions")
-    .select("raw_files_urls, graded_pdf_url")
-    .eq("assessment_id", assessment.id);
+  const submissions: Array<{ raw_files_urls: unknown; graded_pdf_url: string | null }> = [];
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data: page, error: submissionsError } = await admin
+      .from("submissions")
+      .select("raw_files_urls, graded_pdf_url")
+      .eq("assessment_id", assessment.id)
+      .order("id", { ascending: true })
+      .range(offset, offset + pageSize - 1);
 
-  if (submissionsError) {
-    return Response.json({ error: "تعذر جلب التسليمات المرتبطة بالواجب." }, { status: 500 });
+    if (submissionsError) {
+      return Response.json({ error: "تعذر جلب التسليمات المرتبطة بالواجب." }, { status: 500 });
+    }
+
+    submissions.push(...(page ?? []));
+    if (!page || page.length < pageSize) break;
   }
 
-  if ((submissions ?? []).length !== expectedSubmissions) {
+  if (submissions.length !== expectedSubmissions) {
     return Response.json(
       { error: "تغير عدد التسليمات منذ فتح الصفحة. حدّث القائمة وراجع تحذير الحذف." },
       { status: 409 }
