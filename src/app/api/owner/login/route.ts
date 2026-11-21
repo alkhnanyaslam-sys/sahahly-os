@@ -156,6 +156,7 @@ export async function POST(request: NextRequest) {
   const requestId = randomUUID();
   const emailFingerprint = fingerprintEmail(email);
   const ownerEmail = process.env.OWNER_EMAIL?.trim().toLowerCase();
+  let supabase: Awaited<ReturnType<typeof createClient>> | null = null;
 
   try {
     const admin = createAdminClient();
@@ -208,7 +209,7 @@ export async function POST(request: NextRequest) {
       return failureResponse();
     }
 
-    const supabase = await createClient();
+    supabase = await createClient();
     const { error: signInError } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -271,6 +272,13 @@ export async function POST(request: NextRequest) {
       { status: 200, headers: RESPONSE_HEADERS }
     );
   } catch {
+    if (supabase) {
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        return failureResponse();
+      }
+    }
     return failureResponse();
   }
 }
