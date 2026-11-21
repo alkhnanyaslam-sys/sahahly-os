@@ -5,12 +5,13 @@ import {
   createOwnerSessionToken,
   OWNER_SESSION_COOKIE,
 } from "@/lib/owner-session";
+import { OWNER_EMAIL } from "@/lib/owner-email";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 const MAX_BODY_BYTES = 8192;
-const FAILURE_MESSAGE = "بيانات الدخول غير صحيحة";
+const GENERIC_ERROR = "تعذّر إكمال الطلب. تحقق من الرمز وحاول مرة أخرى.";
 const RESPONSE_HEADERS = {
   "Cache-Control": "no-store, max-age=0",
   "X-Robots-Tag": "noindex, nofollow",
@@ -54,11 +55,15 @@ async function completeLoginAttempt(
   }
 }
 
-function failureResponse(status = 401) {
+function jsonError(status = 401) {
   return NextResponse.json(
-    { error: FAILURE_MESSAGE },
+    { error: GENERIC_ERROR },
     { status, headers: RESPONSE_HEADERS }
   );
+}
+
+function jsonOk(body: Record<string, unknown>) {
+  return NextResponse.json(body, { status: 200, headers: RESPONSE_HEADERS });
 }
 
 function getClientIp(request: NextRequest): string {
@@ -88,43 +93,58 @@ function hasSameOrigin(request: NextRequest): boolean {
   }
 }
 
-export async function POST(request: NextRequest) {
-  if (!hasSameOrigin(request)) return failureResponse();
-
+async function readBody(request: NextRequest): Promise<unknown | null> {
   const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (contentLength > MAX_BODY_BYTES) return failureResponse();
+  if (contentLength > MAX_BODY_BYTES) return null;
 
-  let body: unknown;
   try {
     const rawBody = await request.text();
     if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
-      return failureResponse();
+      return null;
     }
-    body = JSON.parse(rawBody);
+    return JSON.parse(rawBody);
   } catch {
-    return failureResponse();
+    return null;
   }
+}
 
-  if (!body || typeof body !== "object") return failureResponse();
+async function sendCode(email: string) {
+  if (email !== OWNER_EMAIL) return jsonError();
 
-  const payload = body as { email?: unknown; password?: unknown };
-  const email = typeof payload.email === "string"
-    ? payload.email.trim().toLowerCase()
-    : "";
-  const password = typeof payload.password === "string" ? payload.password : "";
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false },
+    });
 
-  if (!email || email.length > 254 || !password || password.length > 1024) {
-    return failureResponse();
+    if (error) {
+      return NextResponse.json(
+        { error: "تعذّر إرسال الرمز. حاول مرة أخرى لاحقًا." },
+        { status: 503, headers: RESPONSE_HEADERS }
+      );
+    }
+
+    return jsonOk({ ok: true });
+  } catch {
+    return NextResponse.json(
+      { error: "تعذّر إرسال الرمز. حاول مرة أخرى لاحقًا." },
+      { status: 503, headers: RESPONSE_HEADERS }
+    );
+  }
+}
+
+async function verifyCode(request: NextRequest, email: string, token: string) {
+  if (email !== OWNER_EMAIL || !/^\d{6,8}$/.test(token)) {
+    return jsonError();
   }
 
   const ipAddress = getClientIp(request);
   const userAgent = request.headers.get("user-agent")?.slice(0, 512) ?? null;
   const requestId = randomUUID();
-  const emailFingerprint = fingerprintEmail(email);
-  const ownerEmail = process.env.OWNER_EMAIL?.trim().toLowerCase();
   let admin: ReturnType<typeof createAdminClient> | null = null;
-  let attemptId: string | null = null;
   let supabase: Awaited<ReturnType<typeof createClient>> | null = null;
+  let attemptId: string | null = null;
 
   try {
     admin = createAdminClient();
@@ -132,44 +152,28 @@ export async function POST(request: NextRequest) {
       admin,
       "claim_owner_login_attempt",
       {
-        p_email_fingerprint: emailFingerprint,
+        p_email_fingerprint: fingerprintEmail(email),
         p_ip_address: ipAddress,
         p_user_agent: userAgent,
         p_request_id: requestId,
       }
     );
-    if (claimError) return failureResponse();
+    if (claimError) return jsonError();
 
     const claim = Array.isArray(claimData)
       ? claimData[0] as AttemptClaim | undefined
       : undefined;
-    if (!claim) return failureResponse();
-    if (!claim.attempt_id) return failureResponse(429);
+    if (!claim) return jsonError();
+    if (!claim.attempt_id) return jsonError(429);
     attemptId = claim.attempt_id;
 
-    if (!ownerEmail || email !== ownerEmail) {
-      await completeLoginAttempt(admin, attemptId, "failure");
-      attemptId = null;
-      return failureResponse();
-    }
-
     supabase = await createClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { data: verification, error: verificationError } =
+      await supabase.auth.verifyOtp({ email, token, type: "email" });
 
-    if (signInError) {
-      await completeLoginAttempt(admin, attemptId, "failure");
-      attemptId = null;
-      return failureResponse();
-    }
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-    const membership = user?.email?.trim().toLowerCase() === ownerEmail
+    const user = verification.user;
+    const emailMatches = user?.email?.trim().toLowerCase() === OWNER_EMAIL;
+    const membership = user && emailMatches
       ? await admin
           .from("platform_admins")
           .select("user_id")
@@ -177,23 +181,30 @@ export async function POST(request: NextRequest) {
           .maybeSingle()
       : null;
 
-    if (userError || !user || !membership || membership.error || !membership.data) {
+    if (
+      verificationError
+      || !user
+      || !emailMatches
+      || !membership
+      || membership.error
+      || !membership.data
+    ) {
       await supabase.auth.signOut();
       await completeLoginAttempt(admin, attemptId, "failure");
       attemptId = null;
-      return failureResponse();
+      return jsonError();
     }
 
-    const { data: sessionSettings, error: sessionSettingsError } = await admin
+    const { data: sessionSettings, error: settingsError } = await admin
       .from("platform_settings")
       .select("require_owner_mfa, owner_idle_timeout_seconds")
       .eq("id", 1)
       .maybeSingle();
-    if (sessionSettingsError) {
+    if (settingsError) {
       await supabase.auth.signOut();
       await completeLoginAttempt(admin, attemptId, "failure");
       attemptId = null;
-      return failureResponse();
+      return jsonError();
     }
 
     const sessionPolicy = sessionSettings as {
@@ -205,7 +216,7 @@ export async function POST(request: NextRequest) {
       await supabase.auth.signOut();
       await completeLoginAttempt(admin, attemptId, "failure");
       attemptId = null;
-      return failureResponse();
+      return jsonError();
     }
 
     const ownerToken = await createOwnerSessionToken(
@@ -216,7 +227,7 @@ export async function POST(request: NextRequest) {
       await supabase.auth.signOut();
       await completeLoginAttempt(admin, attemptId, "failure");
       attemptId = null;
-      return failureResponse();
+      return jsonError();
     }
 
     const attemptCompleted = await completeLoginAttempt(
@@ -227,14 +238,11 @@ export async function POST(request: NextRequest) {
     );
     if (!attemptCompleted) {
       await supabase.auth.signOut();
-      return failureResponse();
+      return jsonError();
     }
     attemptId = null;
 
-    const response = NextResponse.json(
-      { ok: true },
-      { status: 200, headers: RESPONSE_HEADERS }
-    );
+    const response = jsonOk({ ok: true });
     response.cookies.set(OWNER_SESSION_COOKIE, ownerToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -248,12 +256,32 @@ export async function POST(request: NextRequest) {
       try {
         await supabase.auth.signOut();
       } catch {
-        // Keep the generic login response even if cleanup fails.
+        // Keep the generic verification response even if cleanup fails.
       }
     }
     if (admin && attemptId) {
       await completeLoginAttempt(admin, attemptId, "failure");
     }
-    return failureResponse();
+    return jsonError();
   }
+}
+
+export async function POST(request: NextRequest) {
+  if (!hasSameOrigin(request)) return jsonError(403);
+
+  const body = await readBody(request);
+  if (!body || typeof body !== "object") return jsonError();
+
+  const payload = body as { action?: unknown; email?: unknown; token?: unknown };
+  const email = typeof payload.email === "string"
+    ? payload.email.trim().toLowerCase()
+    : "";
+  if (!email || email.length > 254) return jsonError();
+
+  if (payload.action === "send") return sendCode(email);
+  if (payload.action === "verify" && typeof payload.token === "string") {
+    return verifyCode(request, email, payload.token.trim());
+  }
+
+  return jsonError();
 }

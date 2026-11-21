@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { OWNER_SESSION_COOKIE, refreshOwnerSessionToken } from "@/lib/owner-session";
+import { OWNER_EMAIL } from "@/lib/owner-email";
 import type { Database } from "@/types/database";
 
 const PROTECTED_PREFIX = "/dashboard";
@@ -57,11 +58,9 @@ export async function updateSession(request: NextRequest) {
   const isPublicOwnerApi = pathname === "/api/owner/login";
 
   if (isOwnerRoute && !isOwnerLoginRoute && !isPublicOwnerApi) {
-    const ownerEmail = process.env.OWNER_EMAIL?.trim().toLowerCase();
     const ownerEmailMatches = Boolean(
       user?.email
-      && ownerEmail
-      && user.email.trim().toLowerCase() === ownerEmail
+      && user.email.trim().toLowerCase() === OWNER_EMAIL
     );
     const renewedOwnerToken = ownerEmailMatches && user
       ? await refreshOwnerSessionToken(

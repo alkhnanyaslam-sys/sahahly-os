@@ -41,7 +41,7 @@ export default function OwnerLoginPage() {
           <p className="text-sm font-bold text-[#53729c]">مرحبًا بعودتك</p>
           <h2 className="mt-2 text-2xl font-extrabold tracking-tight text-[#15243b]">تسجيل دخول المالك</h2>
           <p className="mt-2 text-sm leading-6 text-[#718198]">
-            استخدم بيانات حساب المالك المسجّل للوصول إلى لوحة الإدارة.
+            أرسل رمز تحقق إلى بريد المالك المعتمد، ثم أدخله لإكمال تسجيل الدخول.
           </p>
 
           <div className="mt-8">
