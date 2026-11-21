@@ -355,11 +355,17 @@ export async function DELETE(request: Request) {
   }
 
   const cleanupResults = await Promise.all(
-    storageFiles.map(({ bucket, paths }) =>
-      paths.length > 0 ? admin.storage.from(bucket).remove(paths) : Promise.resolve({ error: null })
-    )
+    storageFiles.map(async ({ bucket, paths }) => {
+      for (let offset = 0; offset < paths.length; offset += 100) {
+        const { error: cleanupError } = await admin.storage
+          .from(bucket)
+          .remove(paths.slice(offset, offset + 100));
+        if (cleanupError) return false;
+      }
+      return true;
+    })
   );
-  const fileCleanupWarning = cleanupResults.some((result) => Boolean(result.error));
+  const fileCleanupWarning = cleanupResults.some((cleaned) => !cleaned);
 
   return Response.json(
     {
