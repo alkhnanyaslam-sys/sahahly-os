@@ -304,21 +304,39 @@ export default function AssessmentsManager({
   }
 
   async function deleteAssessment(assessment: ManagerAssessment) {
-    const ok = window.confirm(`حذف "${assessment.title}"؟ لا يمكن التراجع عن ذلك.`);
+    const cascadeWarning =
+      assessment.submissions_count > 0
+        ? ` سيتم حذف ${toArabicDigits(assessment.submissions_count)} تسليمًا ودرجاتها وملفاتها نهائيًا أيضًا.`
+        : "";
+    const ok = window.confirm(
+      `حذف "${assessment.title}"؟${cascadeWarning} لا يمكن التراجع عن ذلك.`
+    );
     if (!ok) return;
 
     setBusy(true);
     setFeedback(null);
     try {
-      const response = await fetch(`/api/assessments?id=${encodeURIComponent(assessment.id)}`, {
-        method: "DELETE",
-      });
+      const response = await fetch(
+        `/api/assessments?id=${encodeURIComponent(assessment.id)}&submissions=${assessment.submissions_count}`,
+        { method: "DELETE" }
+      );
       if (!response.ok) {
         setFeedback({ kind: "error", text: await readError(response, "تعذر حذف الواجب.") });
         return;
       }
+      const body = (await response.json().catch(() => ({}))) as {
+        file_cleanup_warning?: boolean;
+        deleted_submissions?: number;
+      };
       setAssessments((prev) => prev.filter((a) => a.id !== assessment.id));
-      setFeedback({ kind: "success", text: "تم حذف الواجب." });
+      setFeedback({
+        kind: body.file_cleanup_warning ? "error" : "success",
+        text: body.file_cleanup_warning
+          ? "تم حذف الواجب والتسليمات، لكن تعذر تنظيف بعض الملفات المخزنة."
+          : body.deleted_submissions
+            ? `تم حذف الواجب و${toArabicDigits(body.deleted_submissions)} تسليمًا مرتبطًا به.`
+            : "تم حذف الواجب.",
+      });
       router.refresh();
     } catch {
       setFeedback({ kind: "error", text: "تعذر الاتصال بالخادم. حاول مرة أخرى." });
@@ -462,10 +480,10 @@ export default function AssessmentsManager({
                             type="button"
                             className="flex h-8 w-8 items-center justify-center rounded-lg border border-line text-ink-muted hover:bg-danger-50 hover:text-danger-600 disabled:opacity-40"
                             onClick={() => void deleteAssessment(assessment)}
-                            disabled={busy || assessment.submissions_count > 0}
+                            disabled={busy}
                             title={
                               assessment.submissions_count > 0
-                                ? "لا يمكن حذف واجب عليه تسليمات"
+                                ? "سيُحذف هذا الواجب وتسليماته ودرجاتها نهائيًا"
                                 : undefined
                             }
                             aria-label={`حذف ${assessment.title}`}

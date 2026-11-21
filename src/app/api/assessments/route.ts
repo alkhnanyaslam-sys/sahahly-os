@@ -14,7 +14,7 @@ const SIGNED_URL_TTL_SECONDS = 60 * 5;
  * إدارة الواجبات والامتحانات (كل العمليات مقيّدة بـ teacher_id الخاص بالمستخدم الحالي):
  * - POST: إنشاء واجب/اختبار/امتحان. إن أُرسل mark_scheme_url يُستخرج الـ rubric في الخلفية.
  * - PATCH: تعديل واجب (يتطلب id في الطلب). تغيير نموذج الإجابة يعيد استخراج الـ rubric.
- * - DELETE: حذف واجب (?id=...) بشرط ألا توجد تسليمات عليه.
+ * - DELETE: حذف واجب وتسليماته ودرجاتها مع تنظيف الملفات المخزنة.
  * كل العمليات تتطلب صلاحية assessments.manage.
  *
  * مسار نموذج الإجابة يجب أن يكون داخل مجلد المدرس: {teacher_id}/... في حاوية mark-schemes.
@@ -66,6 +66,32 @@ async function buildRubric(assessmentId: string, schemePath: string, totalMarks:
 
 const ASSESSMENT_COLUMNS =
   "id, group_id, title, type, total_marks, mark_scheme_url, deadline, created_at";
+
+function storagePath(value: unknown, bucket: string): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+
+  let path = value.trim();
+  const marker = "/storage/v1/object/";
+  const markerIndex = path.indexOf(marker);
+  if (markerIndex >= 0) {
+    const segments = path.slice(markerIndex + marker.length).split("?")[0].split("/").filter(Boolean);
+    if (["public", "sign", "authenticated"].includes(segments[0] ?? "")) segments.shift();
+    if (segments.shift() !== bucket) return null;
+    try {
+      path = decodeURIComponent(segments.join("/"));
+    } catch {
+      return null;
+    }
+  } else if (/^https?:\/\//i.test(path)) {
+    return null;
+  }
+
+  path = path.replace(/^\/+/, "");
+  if (!path || path.split("/").some((segment) => !segment || segment === "." || segment === "..")) {
+    return null;
+  }
+  return path;
+}
 
 export async function POST(request: Request) {
   const { auth, response } = await authorize();
@@ -232,16 +258,27 @@ export async function DELETE(request: Request) {
   const { auth, response } = await authorize();
   if (!auth) return response;
 
-  const idCheck = uuidSchema.safeParse(new URL(request.url).searchParams.get("id"));
+  const url = new URL(request.url);
+  const idCheck = uuidSchema.safeParse(url.searchParams.get("id"));
   if (!idCheck.success) {
     return Response.json({ error: "معرّف الواجب غير صالح." }, { status: 400 });
+  }
+
+  const expectedSubmissionsValue = url.searchParams.get("submissions");
+  const expectedSubmissions = Number(expectedSubmissionsValue);
+  if (
+    expectedSubmissionsValue === null ||
+    !Number.isSafeInteger(expectedSubmissions) ||
+    expectedSubmissions < 0
+  ) {
+    return Response.json({ error: "تعذر التحقق من عدد التسليمات. حدّث الصفحة." }, { status: 400 });
   }
 
   const admin = createAdminClient();
 
   const { data: assessment } = await admin
     .from("assessments")
-    .select("id")
+    .select("id, mark_scheme_url")
     .eq("id", idCheck.data)
     .eq("teacher_id", auth.teacherId)
     .maybeSingle();
@@ -250,17 +287,53 @@ export async function DELETE(request: Request) {
     return Response.json({ error: "لم يتم العثور على الواجب." }, { status: 404 });
   }
 
-  const { count } = await admin
+  const { data: submissions, error: submissionsError } = await admin
     .from("submissions")
-    .select("id", { count: "exact", head: true })
+    .select("raw_files_urls, graded_pdf_url")
     .eq("assessment_id", assessment.id);
 
-  if ((count ?? 0) > 0) {
+  if (submissionsError) {
+    return Response.json({ error: "تعذر جلب التسليمات المرتبطة بالواجب." }, { status: 500 });
+  }
+
+  if ((submissions ?? []).length !== expectedSubmissions) {
     return Response.json(
-      { error: "لا يمكن حذف واجب عليه تسليمات. الأفضل ضبط موعد نهائي منتهٍ لإغلاقه." },
+      { error: "تغير عدد التسليمات منذ فتح الصفحة. حدّث القائمة وراجع تحذير الحذف." },
       { status: 409 }
     );
   }
+
+  const rawFiles = (submissions ?? []).flatMap((submission) =>
+    Array.isArray(submission.raw_files_urls) ? submission.raw_files_urls : []
+  );
+  const storageFiles = [
+    {
+      bucket: "mark-schemes",
+      paths: [storagePath(assessment.mark_scheme_url, "mark-schemes")].filter(
+        (path): path is string => Boolean(path)
+      ),
+    },
+    {
+      bucket: "raw-submissions",
+      paths: Array.from(
+        new Set(
+          rawFiles
+            .map((path) => storagePath(path, "raw-submissions"))
+            .filter((path): path is string => Boolean(path))
+        )
+      ),
+    },
+    {
+      bucket: "graded-pdfs",
+      paths: Array.from(
+        new Set(
+          (submissions ?? [])
+            .map((submission) => storagePath(submission.graded_pdf_url, "graded-pdfs"))
+            .filter((path): path is string => Boolean(path))
+        )
+      ),
+    },
+  ];
 
   const { error } = await admin
     .from("assessments")
@@ -269,8 +342,22 @@ export async function DELETE(request: Request) {
     .eq("teacher_id", auth.teacherId);
 
   if (error) {
-    return Response.json({ error: "تعذر حذف الواجب." }, { status: 500 });
+    return Response.json({ error: "تعذر حذف الواجب والتسليمات المرتبطة به." }, { status: 500 });
   }
 
-  return Response.json({ ok: true }, { status: 200 });
+  const cleanupResults = await Promise.all(
+    storageFiles.map(({ bucket, paths }) =>
+      paths.length > 0 ? admin.storage.from(bucket).remove(paths) : Promise.resolve({ error: null })
+    )
+  );
+  const fileCleanupWarning = cleanupResults.some((result) => Boolean(result.error));
+
+  return Response.json(
+    {
+      ok: true,
+      deleted_submissions: submissions?.length ?? 0,
+      file_cleanup_warning: fileCleanupWarning,
+    },
+    { status: 200 }
+  );
       }

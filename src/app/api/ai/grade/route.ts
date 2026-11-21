@@ -12,6 +12,7 @@ interface SubmissionRow {
   id: string;
   assessment_id: string;
   status: SubmissionStatus;
+  submitted_at: string;
 }
 
 interface AssessmentRow {
@@ -31,6 +32,8 @@ interface AssessmentRow {
 const bodySchema = aiGradeSchema.extend({
   force: z.boolean().optional(),
 });
+
+const MANUAL_RETRY_DELAY_MS = 150_000;
 
 function isInternalCall(request: Request): boolean {
   const secret = process.env.INTERNAL_API_SECRET;
@@ -77,7 +80,7 @@ export async function POST(request: Request) {
 
   const { data: rawSubmission, error: submissionError } = await admin
     .from("submissions")
-    .select("id, assessment_id, status")
+    .select("id, assessment_id, status, submitted_at")
     .eq("id", submission_id)
     .maybeSingle();
 
@@ -113,6 +116,16 @@ export async function POST(request: Request) {
       { error: "لا يمكن إعادة تصحيح تسليم تم اعتماده." },
       { status: 409 }
     );
+  }
+
+  if (submission.status === "pending_ai" && !internal) {
+    const submittedAt = Date.parse(submission.submitted_at);
+    if (!Number.isFinite(submittedAt) || Date.now() - submittedAt < MANUAL_RETRY_DELAY_MS) {
+      return Response.json(
+        { error: "ما زال التصحيح جارٍ. ستتاح إعادة المحاولة بعد مرور دقيقتين ونصف." },
+        { status: 409 }
+      );
+    }
   }
 
   if (submission.status === "needs_review") {
