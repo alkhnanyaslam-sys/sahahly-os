@@ -33,20 +33,31 @@ export default async function AssessmentsPage() {
   const assessmentRows = assessmentsResult.data ?? [];
   const assessmentIds = assessmentRows.map((a) => a.id);
 
-  const { data: submissionRows } =
-    assessmentIds.length > 0
-      ? await admin
-          .from("submissions")
-          .select("assessment_id")
-          .in("assessment_id", assessmentIds)
-      : { data: null };
-
   const submissionCounts = new Map<string, number>();
-  for (const row of submissionRows ?? []) {
-    submissionCounts.set(
-      row.assessment_id,
-      (submissionCounts.get(row.assessment_id) ?? 0) + 1
-    );
+  const submissionPageSize = 500;
+  if (assessmentIds.length > 0) {
+    for (let offset = 0; ; offset += submissionPageSize) {
+      const { data: submissionRows, error: submissionError } = await admin
+        .from("submissions")
+        .select("assessment_id, id")
+        .in("assessment_id", assessmentIds)
+        .order("assessment_id", { ascending: true })
+        .order("id", { ascending: true })
+        .range(offset, offset + submissionPageSize - 1);
+
+      if (submissionError) {
+        throw new Error("تعذر تحميل أعداد التسليمات المرتبطة بالواجبات.");
+      }
+
+      for (const row of submissionRows ?? []) {
+        submissionCounts.set(
+          row.assessment_id,
+          (submissionCounts.get(row.assessment_id) ?? 0) + 1
+        );
+      }
+
+      if (!submissionRows || submissionRows.length < submissionPageSize) break;
+    }
   }
 
   const groups: ManagerAssessmentGroup[] = (groupsResult.data ?? []).map((group) => ({

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth";
 import { formatDateTimeAr } from "@/lib/utils";
+import RetryGradingButton from "@/components/dashboard/RetryGradingButton";
 import type { SubmissionStatus } from "@/types/database";
 
 export const dynamic = "force-dynamic";
@@ -59,7 +60,7 @@ export default async function GradingQueuePage({
       .from("submissions")
       .select("id, assessment_id, student_id, status, ai_score, final_score, submitted_at")
       .in("assessment_id", assessmentIds)
-      .order("submitted_at", { ascending: filter === "needs_review" })
+      .order("submitted_at", { ascending: filter === "needs_review" || filter === "pending_ai" })
       .limit(100);
 
     if (filter === "approved") {
@@ -165,7 +166,10 @@ export default async function GradingQueuePage({
                             {item.status === "needs_review" ? "مراجعة" : "عرض"}
                           </Link>
                         ) : (
-                          <span className="text-xs text-ink-muted">جارٍ التصحيح...</span>
+                          <RetryGradingButton
+                            submissionId={item.id}
+                            submittedAt={item.submitted_at}
+                          />
                         )}
                       </td>
                     </tr>
