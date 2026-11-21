@@ -7,6 +7,7 @@ import {
   BarChart3,
   ClipboardCheck,
   ClipboardList,
+  FileCheck2,
   FileStack,
   GraduationCap,
   LayoutDashboard,
@@ -63,6 +64,12 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     label: "الطلاب والمجموعات",
     icon: Users,
     permission: "students.manage",
+  },
+  {
+    href: "/dashboard/reports",
+    label: "التقارير الشهرية",
+    icon: FileCheck2,
+    permission: "analytics.view",
   },
   {
     href: "/dashboard/analytics",
