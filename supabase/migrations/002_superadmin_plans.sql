@@ -199,8 +199,10 @@ on conflict (id) do nothing;
 
 commit;
 
--- Bootstrap the first platform administrator manually after confirming the owner's auth account:
--- Replace owner@example.com with the exact email, then execute this statement separately.
--- insert into public.platform_admins (user_id)
--- select u.id from auth.users as u where lower(u.email) = lower('owner@example.com')
--- on conflict (user_id) do nothing;
+-- Grant the first platform administrator to the owner account, if it already exists.
+-- Run this migration only after the owner has registered; it is not an auth signup trigger.
+insert into public.platform_admins (user_id)
+select u.id
+from auth.users as u
+where lower(u.email) = lower('alkhnanyaslam@gmail.com')
+on conflict (user_id) do nothing;
