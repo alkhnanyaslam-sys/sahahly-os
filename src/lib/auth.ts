@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { OWNER_EMAIL } from "@/lib/owner-email";
 import type { AssistantRole } from "@/types/database";
 
 /** "owner" = المدرس صاحب الحساب، وباقي الأدوار للمساعدين. */
@@ -181,9 +182,6 @@ export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
 
 export const getPlatformAdmin = cache(
   async (): Promise<PlatformAdminContext | null> => {
-    const ownerEmail = process.env.OWNER_EMAIL?.trim().toLowerCase();
-    if (!ownerEmail) return null;
-
     const supabase = await createClient();
     const {
       data: { user },
@@ -191,7 +189,7 @@ export const getPlatformAdmin = cache(
     } = await supabase.auth.getUser();
 
     if (userError || !user?.email) return null;
-    if (user.email.trim().toLowerCase() !== ownerEmail) return null;
+    if (user.email.trim().toLowerCase() !== OWNER_EMAIL) return null;
 
     const admin = createAdminClient();
     const { data, error } = await admin
