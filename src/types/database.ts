@@ -35,6 +35,7 @@ export interface Teacher {
   subject: string;
   phone: string;
   subscription_status: SubscriptionStatus;
+  is_suspended?: boolean;
   created_at: string;
 }
 

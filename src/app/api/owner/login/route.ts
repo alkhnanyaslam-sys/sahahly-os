@@ -1,12 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import { NextResponse, type NextRequest } from "next/server";
+import {
+  createOwnerSessionToken,
+  OWNER_SESSION_COOKIE,
+} from "@/lib/owner-session";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-const WINDOW_MS = 15 * 60 * 1000;
-const MAX_FAILURES = 5;
 const MAX_BODY_BYTES = 8192;
 const FAILURE_MESSAGE = "بيانات الدخول غير صحيحة";
 const RESPONSE_HEADERS = {
@@ -14,23 +16,42 @@ const RESPONSE_HEADERS = {
   "X-Robots-Tag": "noindex, nofollow",
 };
 
-type AttemptType = "success" | "failure" | "locked";
-type AuditOutcome = "success" | "failure" | "blocked";
-type LoginAttemptRow = {
-  attempt_type: AttemptType;
+type OwnerRpcName = "claim_owner_login_attempt" | "complete_owner_login_attempt";
+type OwnerRpcClient = {
+  rpc: (
+    functionName: OwnerRpcName,
+    args: Record<string, unknown>
+  ) => Promise<{ data: unknown; error: unknown }>;
+};
+type AttemptClaim = {
+  attempt_id: string | null;
   locked_until: string | null;
 };
-type InsertTable = {
-  insert: (record: Record<string, unknown>) => Promise<{ error: unknown }>;
-};
 
-async function insertAdminRecord(
+function ownerRpc(
   admin: ReturnType<typeof createAdminClient>,
-  table: "login_attempts" | "admin_audit_log",
-  record: Record<string, unknown>
+  functionName: OwnerRpcName,
+  args: Record<string, unknown>
 ) {
-  const typedTable = admin.from(table) as unknown as InsertTable;
-  return typedTable.insert(record);
+  return (admin as unknown as OwnerRpcClient).rpc(functionName, args);
+}
+
+async function completeLoginAttempt(
+  admin: ReturnType<typeof createAdminClient>,
+  attemptId: string,
+  outcome: "success" | "failure",
+  actorId: string | null = null
+): Promise<boolean> {
+  try {
+    const { error } = await ownerRpc(admin, "complete_owner_login_attempt", {
+      p_attempt_id: attemptId,
+      p_outcome: outcome,
+      p_actor_id: actorId,
+    });
+    return !error;
+  } catch {
+    return false;
+  }
 }
 
 function failureResponse(status = 401) {
@@ -67,61 +88,6 @@ function hasSameOrigin(request: NextRequest): boolean {
   }
 }
 
-async function writeLoginEvent(
-  admin: ReturnType<typeof createAdminClient>,
-  event: {
-    emailFingerprint: string;
-    ipAddress: string;
-    userAgent: string | null;
-    requestId: string;
-    attemptType: AttemptType;
-    outcome: AuditOutcome;
-    actorId: string | null;
-    lockedUntil?: string | null;
-  }
-): Promise<boolean> {
-  const { error: attemptError } = await insertAdminRecord(admin, "login_attempts", {
-    email_fingerprint: event.emailFingerprint,
-    ip_address: event.ipAddress,
-    user_agent: event.userAgent,
-    request_id: event.requestId,
-    attempt_type: event.attemptType,
-    locked_until: event.lockedUntil ?? null,
-  });
-
-  const { error: auditError } = await insertAdminRecord(admin, "admin_audit_log", {
-    actor_id: event.actorId,
-    action: "owner.login",
-    entity_type: "owner_auth",
-    entity_id: event.actorId,
-    ip_address: event.ipAddress,
-    user_agent: event.userAgent,
-    outcome: event.outcome,
-    details: { request_id: event.requestId },
-  });
-
-  return !attemptError && !auditError;
-}
-
-function loginFailureEvent(
-  emailFingerprint: string,
-  ipAddress: string,
-  userAgent: string | null,
-  requestId: string,
-  lockedUntil: string | null = null
-) {
-  return {
-    emailFingerprint,
-    ipAddress,
-    userAgent,
-    requestId,
-    attemptType: "failure" as const,
-    outcome: "failure" as const,
-    actorId: null,
-    lockedUntil,
-  };
-}
-
 export async function POST(request: NextRequest) {
   if (!hasSameOrigin(request)) return failureResponse();
 
@@ -156,56 +122,34 @@ export async function POST(request: NextRequest) {
   const requestId = randomUUID();
   const emailFingerprint = fingerprintEmail(email);
   const ownerEmail = process.env.OWNER_EMAIL?.trim().toLowerCase();
+  let admin: ReturnType<typeof createAdminClient> | null = null;
+  let attemptId: string | null = null;
   let supabase: Awaited<ReturnType<typeof createClient>> | null = null;
 
   try {
-    const admin = createAdminClient();
-    const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
-    const { data: recentAttempts, error: attemptsError } = await admin
-      .from("login_attempts")
-      .select("attempt_type, locked_until")
-      .eq("ip_address", ipAddress)
-      .eq("email_fingerprint", emailFingerprint)
-      .in("attempt_type", ["failure", "locked"])
-      .gte("attempted_at", windowStart)
-      .order("attempted_at", { ascending: false })
-      .limit(MAX_FAILURES + 1);
-
-    if (attemptsError) return failureResponse();
-
-    const attempts = (recentAttempts ?? []) as LoginAttemptRow[];
-    const now = Date.now();
-    const activeLock = attempts.find(
-      (attempt) => attempt.locked_until && Date.parse(attempt.locked_until) > now
+    admin = createAdminClient();
+    const { data: claimData, error: claimError } = await ownerRpc(
+      admin,
+      "claim_owner_login_attempt",
+      {
+        p_email_fingerprint: emailFingerprint,
+        p_ip_address: ipAddress,
+        p_user_agent: userAgent,
+        p_request_id: requestId,
+      }
     );
-    const failures = attempts.filter(
-      (attempt) => attempt.attempt_type === "failure"
-    ).length;
+    if (claimError) return failureResponse();
 
-    if (activeLock || failures >= MAX_FAILURES) {
-      const lockedUntil = activeLock?.locked_until ?? new Date(now + WINDOW_MS).toISOString();
-      await writeLoginEvent(admin, {
-        emailFingerprint,
-        ipAddress,
-        userAgent,
-        requestId,
-        attemptType: "locked",
-        outcome: "blocked",
-        actorId: null,
-        lockedUntil,
-      });
-      return failureResponse(429);
-    }
+    const claim = Array.isArray(claimData)
+      ? claimData[0] as AttemptClaim | undefined
+      : undefined;
+    if (!claim) return failureResponse();
+    if (!claim.attempt_id) return failureResponse(429);
+    attemptId = claim.attempt_id;
 
     if (!ownerEmail || email !== ownerEmail) {
-      const failureCount = failures + 1;
-      const lockedUntil = failureCount >= MAX_FAILURES
-        ? new Date(now + WINDOW_MS).toISOString()
-        : null;
-      await writeLoginEvent(
-        admin,
-        loginFailureEvent(emailFingerprint, ipAddress, userAgent, requestId, lockedUntil)
-      );
+      await completeLoginAttempt(admin, attemptId, "failure");
+      attemptId = null;
       return failureResponse();
     }
 
@@ -216,14 +160,8 @@ export async function POST(request: NextRequest) {
     });
 
     if (signInError) {
-      const failureCount = failures + 1;
-      const lockedUntil = failureCount >= MAX_FAILURES
-        ? new Date(Date.now() + WINDOW_MS).toISOString()
-        : null;
-      await writeLoginEvent(
-        admin,
-        loginFailureEvent(emailFingerprint, ipAddress, userAgent, requestId, lockedUntil)
-      );
+      await completeLoginAttempt(admin, attemptId, "failure");
+      attemptId = null;
       return failureResponse();
     }
 
@@ -241,43 +179,80 @@ export async function POST(request: NextRequest) {
 
     if (userError || !user || !membership || membership.error || !membership.data) {
       await supabase.auth.signOut();
-      const failureCount = failures + 1;
-      const lockedUntil = failureCount >= MAX_FAILURES
-        ? new Date(Date.now() + WINDOW_MS).toISOString()
-        : null;
-      await writeLoginEvent(
-        admin,
-        loginFailureEvent(emailFingerprint, ipAddress, userAgent, requestId, lockedUntil)
-      );
+      await completeLoginAttempt(admin, attemptId, "failure");
+      attemptId = null;
       return failureResponse();
     }
 
-    const eventWritten = await writeLoginEvent(admin, {
-      emailFingerprint,
-      ipAddress,
-      userAgent,
-      requestId,
-      attemptType: "success",
-      outcome: "success",
-      actorId: user.id,
-    });
+    const { data: sessionSettings, error: sessionSettingsError } = await admin
+      .from("platform_settings")
+      .select("require_owner_mfa, owner_idle_timeout_seconds")
+      .eq("id", 1)
+      .maybeSingle();
+    if (sessionSettingsError) {
+      await supabase.auth.signOut();
+      await completeLoginAttempt(admin, attemptId, "failure");
+      attemptId = null;
+      return failureResponse();
+    }
 
-    if (!eventWritten) {
+    const sessionPolicy = sessionSettings as {
+      require_owner_mfa?: boolean;
+      owner_idle_timeout_seconds?: number;
+    } | null;
+
+    if (sessionPolicy?.require_owner_mfa) {
+      await supabase.auth.signOut();
+      await completeLoginAttempt(admin, attemptId, "failure");
+      attemptId = null;
+      return failureResponse();
+    }
+
+    const ownerToken = await createOwnerSessionToken(
+      user.id,
+      sessionPolicy?.owner_idle_timeout_seconds ?? 12 * 60 * 60
+    );
+    if (!ownerToken) {
+      await supabase.auth.signOut();
+      await completeLoginAttempt(admin, attemptId, "failure");
+      attemptId = null;
+      return failureResponse();
+    }
+
+    const attemptCompleted = await completeLoginAttempt(
+      admin,
+      attemptId,
+      "success",
+      user.id
+    );
+    if (!attemptCompleted) {
       await supabase.auth.signOut();
       return failureResponse();
     }
+    attemptId = null;
 
-    return NextResponse.json(
+    const response = NextResponse.json(
       { ok: true },
       { status: 200, headers: RESPONSE_HEADERS }
     );
+    response.cookies.set(OWNER_SESSION_COOKIE, ownerToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 12 * 60 * 60,
+    });
+    return response;
   } catch {
     if (supabase) {
       try {
         await supabase.auth.signOut();
       } catch {
-        return failureResponse();
+        // Keep the generic login response even if cleanup fails.
       }
+    }
+    if (admin && attemptId) {
+      await completeLoginAttempt(admin, attemptId, "failure");
     }
     return failureResponse();
   }
