@@ -1,7 +1,9 @@
 import { cache } from "react";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { OWNER_EMAIL } from "@/lib/owner-email";
+import { OWNER_SESSION_COOKIE, refreshOwnerSessionToken } from "@/lib/owner-session";
 import type { AssistantRole } from "@/types/database";
 
 /** "owner" = المدرس صاحب الحساب، وباقي الأدوار للمساعدين. */
@@ -102,12 +104,27 @@ async function isTeacherSuspended(
 ): Promise<boolean> {
   const { data, error } = await admin
     .from("teachers")
-    .select("is_suspended")
+    .select("is_suspended, subscription_status")
     .eq("id", teacherId)
     .maybeSingle();
 
-  if (error) return !isMissingSuspensionColumn(error);
-  return !data || Boolean(data.is_suspended);
+  if (error) {
+    if (!isMissingSuspensionColumn(error)) return true;
+
+    const fallback = await admin
+      .from("teachers")
+      .select("subscription_status")
+      .eq("id", teacherId)
+      .maybeSingle();
+
+    return Boolean(
+      fallback.error
+      || !fallback.data
+      || fallback.data.subscription_status === "expired"
+    );
+  }
+
+  return !data || Boolean(data.is_suspended) || data.subscription_status === "expired";
 }
 
 export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
@@ -180,27 +197,40 @@ export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
   return null;
 });
 
+function isMissingPlatformAdminTable(error: { code?: string; message?: string } | null) {
+  return error?.code === "42P01"
+    || (error?.code === "PGRST205" && /platform_admins/i.test(error.message ?? ""));
+}
+
 export const getPlatformAdmin = cache(
   async (): Promise<PlatformAdminContext | null> => {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    try {
+      const supabase = await createClient();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-    if (userError || !user?.email) return null;
-    if (user.email.trim().toLowerCase() !== OWNER_EMAIL) return null;
+      if (userError || !user?.email) return null;
+      if (user.email.trim().toLowerCase() !== OWNER_EMAIL) return null;
 
-    const admin = createAdminClient();
-    const { data, error } = await admin
-      .from("platform_admins")
-      .select("user_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
+      const cookieStore = await cookies();
+      const ownerToken = cookieStore.get(OWNER_SESSION_COOKIE)?.value;
+      if (!await refreshOwnerSessionToken(ownerToken, user.id)) return null;
 
-    if (error || !data) return null;
+      const admin = createAdminClient();
+      const { data, error } = await admin
+        .from("platform_admins")
+        .select("user_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-    return { userId: user.id, email: user.email };
+      if (error && !isMissingPlatformAdminTable(error)) return null;
+
+      return { userId: user.id, email: user.email };
+    } catch {
+      return null;
+    }
   }
 );
 

@@ -22,12 +22,23 @@ type OwnerRpcClient = {
   rpc: (
     functionName: OwnerRpcName,
     args: Record<string, unknown>
-  ) => Promise<{ data: unknown; error: unknown }>;
+  ) => Promise<{ data: unknown; error: { code?: string; message?: string } | null }>;
 };
 type AttemptClaim = {
   attempt_id: string | null;
   locked_until: string | null;
 };
+
+function isMissingOptionalOwnerSchema(error: { code?: string; message?: string } | null) {
+  const message = error?.message ?? "";
+  return (
+    (error?.code === "PGRST202" || error?.code === "42883")
+      && /claim_owner_login_attempt|complete_owner_login_attempt/i.test(message)
+  ) || (
+    (error?.code === "42P01" || error?.code === "PGRST205")
+      && /platform_admins|platform_settings/i.test(message)
+  );
+}
 
 function ownerRpc(
   admin: ReturnType<typeof createAdminClient>,
@@ -158,14 +169,16 @@ async function verifyCode(request: NextRequest, email: string, token: string) {
         p_request_id: requestId,
       }
     );
-    if (claimError) return jsonError();
 
-    const claim = Array.isArray(claimData)
-      ? claimData[0] as AttemptClaim | undefined
-      : undefined;
-    if (!claim) return jsonError();
-    if (!claim.attempt_id) return jsonError(429);
-    attemptId = claim.attempt_id;
+    if (claimError && !isMissingOptionalOwnerSchema(claimError)) return jsonError();
+    if (!claimError) {
+      const claim = Array.isArray(claimData)
+        ? claimData[0] as AttemptClaim | undefined
+        : undefined;
+      if (!claim) return jsonError();
+      if (!claim.attempt_id) return jsonError(429);
+      attemptId = claim.attempt_id;
+    }
 
     supabase = await createClient();
     const { data: verification, error: verificationError } =
@@ -180,17 +193,18 @@ async function verifyCode(request: NextRequest, email: string, token: string) {
           .eq("user_id", user.id)
           .maybeSingle()
       : null;
+    const membershipIsValid = membership
+      ? (!membership.error || isMissingOptionalOwnerSchema(membership.error))
+      : false;
 
     if (
       verificationError
       || !user
       || !emailMatches
-      || !membership
-      || membership.error
-      || !membership.data
+      || !membershipIsValid
     ) {
       await supabase.auth.signOut();
-      await completeLoginAttempt(admin, attemptId, "failure");
+      if (attemptId) await completeLoginAttempt(admin, attemptId, "failure");
       attemptId = null;
       return jsonError();
     }
@@ -200,9 +214,9 @@ async function verifyCode(request: NextRequest, email: string, token: string) {
       .select("require_owner_mfa, owner_idle_timeout_seconds")
       .eq("id", 1)
       .maybeSingle();
-    if (settingsError) {
+    if (settingsError && !isMissingOptionalOwnerSchema(settingsError)) {
       await supabase.auth.signOut();
-      await completeLoginAttempt(admin, attemptId, "failure");
+      if (attemptId) await completeLoginAttempt(admin, attemptId, "failure");
       attemptId = null;
       return jsonError();
     }
@@ -214,7 +228,7 @@ async function verifyCode(request: NextRequest, email: string, token: string) {
 
     if (sessionPolicy?.require_owner_mfa) {
       await supabase.auth.signOut();
-      await completeLoginAttempt(admin, attemptId, "failure");
+      if (attemptId) await completeLoginAttempt(admin, attemptId, "failure");
       attemptId = null;
       return jsonError();
     }
@@ -225,22 +239,24 @@ async function verifyCode(request: NextRequest, email: string, token: string) {
     );
     if (!ownerToken) {
       await supabase.auth.signOut();
-      await completeLoginAttempt(admin, attemptId, "failure");
+      if (attemptId) await completeLoginAttempt(admin, attemptId, "failure");
       attemptId = null;
       return jsonError();
     }
 
-    const attemptCompleted = await completeLoginAttempt(
-      admin,
-      attemptId,
-      "success",
-      user.id
-    );
-    if (!attemptCompleted) {
-      await supabase.auth.signOut();
-      return jsonError();
+    if (attemptId) {
+      const attemptCompleted = await completeLoginAttempt(
+        admin,
+        attemptId,
+        "success",
+        user.id
+      );
+      if (!attemptCompleted) {
+        await supabase.auth.signOut();
+        return jsonError();
+      }
+      attemptId = null;
     }
-    attemptId = null;
 
     const response = jsonOk({ ok: true });
     response.cookies.set(OWNER_SESSION_COOKIE, ownerToken, {

@@ -9,7 +9,6 @@ type OwnerTeacher = {
   subject: string;
   phone: string;
   subscriptionStatus: "trial" | "active" | "expired";
-  isSuspended: boolean;
   createdAtLabel: string;
 };
 
@@ -37,7 +36,12 @@ export function TeacherTable({ initialTeachers }: { initialTeachers: OwnerTeache
     ].some((value) => value.toLocaleLowerCase("ar").includes(normalizedQuery)));
   }, [query, teachers]);
 
-  async function toggleSuspension(teacher: OwnerTeacher) {
+  async function updateSubscriptionStatus(
+    teacher: OwnerTeacher,
+    subscriptionStatus: OwnerTeacher["subscriptionStatus"]
+  ) {
+    if (subscriptionStatus === teacher.subscriptionStatus) return;
+
     setPendingId(teacher.id);
     setNotice("");
     setError("");
@@ -46,24 +50,22 @@ export function TeacherTable({ initialTeachers }: { initialTeachers: OwnerTeache
       const response = await fetch(`/api/owner/teachers/${teacher.id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isSuspended: !teacher.isSuspended }),
+        body: JSON.stringify({ subscriptionStatus }),
       });
       const result = await response.json().catch(() => null) as {
-        teacher?: { isSuspended?: boolean };
+        teacher?: { subscriptionStatus?: OwnerTeacher["subscriptionStatus"] };
         error?: string;
       } | null;
 
-      if (!response.ok || typeof result?.teacher?.isSuspended !== "boolean") {
-        setError(result?.error || "تعذّر تحديث حالة الحساب.");
+      if (!response.ok || !result?.teacher?.subscriptionStatus) {
+        setError(result?.error || "تعذّر تحديث الاشتراك.");
         return;
       }
 
       setTeachers((current) => current.map((item) => item.id === teacher.id
-        ? { ...item, isSuspended: result.teacher!.isSuspended! }
+        ? { ...item, subscriptionStatus: result.teacher!.subscriptionStatus! }
         : item));
-      setNotice(result.teacher.isSuspended
-        ? `تم تعليق حساب ${teacher.name}.`
-        : `تمت إعادة تفعيل حساب ${teacher.name}.`);
+      setNotice(`تم تحديث اشتراك ${teacher.name} إلى ${subscriptionLabels[result.teacher.subscriptionStatus]}.`);
     } catch {
       setError("تعذّر الاتصال بالخادم. حاول مرة أخرى.");
     } finally {
@@ -95,7 +97,7 @@ export function TeacherTable({ initialTeachers }: { initialTeachers: OwnerTeache
       {error ? <p role="alert" className="border-b border-[#f2d2cf] bg-[#fff6f5] px-5 py-3 text-sm font-semibold text-[#a3322b]">{error}</p> : null}
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[820px] border-collapse text-right text-sm">
+        <table className="w-full min-w-[760px] border-collapse text-right text-sm">
           <caption className="sr-only">قائمة المدرسين المسجلين وحالة حساباتهم</caption>
           <thead className="bg-[#f7f9fc] text-xs font-bold text-[#61728a]">
             <tr>
@@ -104,7 +106,6 @@ export function TeacherTable({ initialTeachers }: { initialTeachers: OwnerTeache
               <th scope="col" className="px-4 py-3.5">الاشتراك</th>
               <th scope="col" className="px-4 py-3.5">حالة الوصول</th>
               <th scope="col" className="px-4 py-3.5">تاريخ التسجيل</th>
-              <th scope="col" className="px-5 py-3.5"><span className="sr-only">إجراء</span></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#edf1f6]">
@@ -119,45 +120,46 @@ export function TeacherTable({ initialTeachers }: { initialTeachers: OwnerTeache
                   </td>
                   <td dir="ltr" className="px-4 py-4 text-left font-medium text-[#53657d]">{teacher.phone}</td>
                   <td className="px-4 py-4">
-                    <span className="rounded-full bg-[#f0f4f9] px-2.5 py-1 text-xs font-bold text-[#52647c]">
-                      {subscriptionLabels[teacher.subscriptionStatus]}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <label className="sr-only" htmlFor={`teacher-subscription-${teacher.id}`}>
+                        تغيير اشتراك {teacher.name}
+                      </label>
+                      <select
+                        id={`teacher-subscription-${teacher.id}`}
+                        value={teacher.subscriptionStatus}
+                        onChange={(event) => updateSubscriptionStatus(
+                          teacher,
+                          event.target.value as OwnerTeacher["subscriptionStatus"]
+                        )}
+                        disabled={pendingId !== null}
+                        className="rounded-lg border border-[#dce6f2] bg-white px-2.5 py-2 text-xs font-bold text-[#42536d] focus:border-[#2e67bb] focus:outline-none focus:ring-4 focus:ring-[#eaf2ff] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {Object.entries(subscriptionLabels).map(([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                        ))}
+                      </select>
+                      {isPending ? <LoaderCircle size={14} className="animate-spin text-[#3768aa]" aria-label="جارٍ تحديث الاشتراك" /> : null}
+                    </div>
                   </td>
                   <td className="px-4 py-4">
                     <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${
-                      teacher.isSuspended
+                      teacher.subscriptionStatus === "expired"
                         ? "bg-[#fff1f0] text-[#a3322b]"
                         : "bg-[#edf9f1] text-[#17603a]"
                     }`}>
-                      {teacher.isSuspended
+                      {teacher.subscriptionStatus === "expired"
                         ? <ShieldAlert size={14} aria-hidden="true" />
                         : <ShieldCheck size={14} aria-hidden="true" />}
-                      {teacher.isSuspended ? "معلّق" : "نشط"}
+                      {teacher.subscriptionStatus === "expired" ? "موقوف" : "متاح"}
                     </span>
                   </td>
                   <td className="whitespace-nowrap px-4 py-4 text-xs text-[#718198]">{teacher.createdAtLabel}</td>
-                  <td className="px-5 py-4">
-                    <button
-                      type="button"
-                      onClick={() => toggleSuspension(teacher)}
-                      disabled={pendingId !== null}
-                      aria-label={teacher.isSuspended ? `إعادة تفعيل حساب ${teacher.name}` : `تعليق حساب ${teacher.name}`}
-                      className={`inline-flex min-w-28 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                        teacher.isSuspended
-                          ? "border-[#b9d2f3] bg-[#f2f7ff] text-[#174ea6] hover:bg-[#e8f1ff]"
-                          : "border-[#f0cbc7] bg-[#fff8f7] text-[#a3322b] hover:bg-[#fff0ee]"
-                      }`}
-                    >
-                      {isPending ? <LoaderCircle size={14} className="animate-spin" aria-hidden="true" /> : null}
-                      {teacher.isSuspended ? "إعادة التفعيل" : "تعليق الحساب"}
-                    </button>
-                  </td>
                 </tr>
               );
             })}
             {filteredTeachers.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-5 py-12 text-center text-sm text-[#718198]">
+                <td colSpan={5} className="px-5 py-12 text-center text-sm text-[#718198]">
                   {teachers.length === 0 ? "لا توجد حسابات مدرسين بعد." : "لا توجد نتائج مطابقة للبحث."}
                 </td>
               </tr>
