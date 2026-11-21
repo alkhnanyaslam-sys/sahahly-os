@@ -494,7 +494,14 @@ const QuestionGradeCard = memo(function QuestionGradeCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="font-bold text-ink">السؤال {grade.question_number}</p>
+          <button
+            type="button"
+            onClick={() => onActivate(grade.question_number, grade.page_index)}
+            aria-pressed={isActive}
+            className="rounded text-start font-bold text-ink hover:text-sky-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+          >
+            السؤال {grade.question_number}
+          </button>
           {grade.topic_tag ? (
             <p className="text-xs text-ink-muted">{grade.topic_tag}</p>
           ) : null}
