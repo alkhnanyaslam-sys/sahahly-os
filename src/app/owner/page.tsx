@@ -54,7 +54,7 @@ export default async function OwnerDashboardPage() {
     admin.from("submissions").select("id", { count: "exact", head: true }),
     admin
       .from("teachers")
-      .select("id, name, subject, phone, subscription_status, created_at, is_suspended")
+      .select("id, name, subject, phone, subscription_status, created_at")
       .order("created_at", { ascending: false })
       .limit(100),
   ]);
@@ -71,7 +71,6 @@ export default async function OwnerDashboardPage() {
     subject: teacher.subject,
     phone: teacher.phone,
     subscriptionStatus: teacher.subscription_status,
-    isSuspended: Boolean(teacher.is_suspended),
     createdAtLabel: formatDate(teacher.created_at),
   }));
 
@@ -85,7 +84,7 @@ export default async function OwnerDashboardPage() {
           </p>
           <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-[#15243b]">نظرة عامة</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[#718198]">
-            متابعة مؤشرات المنصة وإدارة صلاحية وصول المدرسين.
+            متابعة مؤشرات المنصة وتحديث اشتراكات المدرسين؛ الاشتراك المنتهي يوقف وصول الحساب.
           </p>
         </div>
         <span className="inline-flex w-fit items-center gap-2 rounded-full border border-[#d9e6f7] bg-[#f3f7ff] px-3.5 py-2 text-xs font-bold text-[#315d9b]">
