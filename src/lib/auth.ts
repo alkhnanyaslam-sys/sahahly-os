@@ -197,11 +197,6 @@ export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
   return null;
 });
 
-function isMissingPlatformAdminTable(error: { code?: string; message?: string } | null) {
-  return error?.code === "42P01"
-    || (error?.code === "PGRST205" && /platform_admins/i.test(error.message ?? ""));
-}
-
 export const getPlatformAdmin = cache(
   async (): Promise<PlatformAdminContext | null> => {
     try {
@@ -225,7 +220,8 @@ export const getPlatformAdmin = cache(
         .eq("user_id", user.id)
         .maybeSingle();
 
-      if (error && !isMissingPlatformAdminTable(error)) return null;
+      // رفض صارم: لا بد أن يكون المستخدم مسجلاً في platform_admins
+      if (error || !data) return null;
 
       return { userId: user.id, email: user.email };
     } catch {
@@ -310,4 +306,4 @@ export function authErrorResponse(error: unknown): Response | null {
     return Response.json({ error: error.message }, { status: error.status });
   }
   return null;
-                                    }
+      }
