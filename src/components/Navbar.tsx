@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Menu, X, GraduationCap } from "lucide-react";
 import { siteConfig } from "@/config/site";
 import { cn } from "@/lib/utils";
+import ThemeToggle from "@/components/ThemeToggle";
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
@@ -44,6 +45,7 @@ export default function Navbar() {
         </ul>
 
         <div className="hidden items-center gap-2 md:flex">
+          <ThemeToggle />
           <Link href="/login" className="btn-secondary">
             تسجيل الدخول
           </Link>
@@ -52,16 +54,19 @@ export default function Navbar() {
           </Link>
         </div>
 
-        <button
-          type="button"
-          className="flex h-10 w-10 items-center justify-center rounded-lg border border-line text-ink-soft md:hidden"
-          aria-label={open ? "إغلاق القائمة" : "فتح القائمة"}
-          aria-expanded={open}
-          aria-controls="mobile-menu"
-          onClick={() => setOpen((v) => !v)}
-        >
-          {open ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
-        </button>
+        <div className="flex items-center gap-2 md:hidden">
+          <ThemeToggle className="px-2" />
+          <button
+            type="button"
+            className="flex h-10 w-10 items-center justify-center rounded-lg border border-line text-ink-soft"
+            aria-label={open ? "إغلاق القائمة" : "فتح القائمة"}
+            aria-expanded={open}
+            aria-controls="mobile-menu"
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
+          </button>
+        </div>
       </nav>
 
       <div
