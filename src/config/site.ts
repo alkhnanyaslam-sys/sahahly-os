@@ -39,22 +39,22 @@ export const siteConfig: SiteConfig = {
       {
         platform: "github",
         label: "GitHub",
-        href: "https://github.com/your-username",
+        href: "https://github.com",
       },
       {
         platform: "linkedin",
         label: "LinkedIn",
-        href: "https://www.linkedin.com/in/your-username",
+        href: "https://www.linkedin.com/in/eslam-sherif-5555b1449?utm_source=share_via&utm_content=profile&utm_medium=member_android",
       },
       {
         platform: "facebook",
         label: "Facebook",
-        href: "https://www.facebook.com/your-username",
+        href: "https://www.facebook.com/share/1M8ejDiHtp/",
       },
       {
         platform: "whatsapp",
-        label: "WhatsApp",
-        href: "https://wa.me/201000000000",
+        label: "WhatsApp: 01016295024",
+        href: "https://wa.me/201016295024",
       },
     ],
   },
