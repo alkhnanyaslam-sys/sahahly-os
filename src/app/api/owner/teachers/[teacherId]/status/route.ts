@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { ApiAuthError, requireApiSuperAdmin } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/server";
+import type { SubscriptionStatus } from "@/types/database";
 
 export const runtime = "nodejs";
 
@@ -8,18 +9,7 @@ const RESPONSE_HEADERS = {
   "Cache-Control": "no-store, max-age=0",
   "X-Robots-Tag": "noindex, nofollow",
 };
-
-type StatusRpcClient = {
-  rpc: (
-    functionName: "owner_set_teacher_suspension",
-    args: Record<string, unknown>
-  ) => Promise<{ data: unknown; error: unknown }>;
-};
-type StatusResult = {
-  teacher_id: string;
-  teacher_name: string;
-  is_suspended: boolean;
-};
+const subscriptionStatuses: readonly SubscriptionStatus[] = ["trial", "active", "expired"];
 
 function errorResponse(message: string, status: number) {
   return NextResponse.json(
@@ -62,13 +52,18 @@ export async function PATCH(
     return errorResponse("الطلب غير صالح.", 400);
   }
 
-  if (!body || typeof body !== "object" || typeof (body as { isSuspended?: unknown }).isSuspended !== "boolean") {
-    return errorResponse("الطلب غير صالح.", 400);
+  const subscriptionStatus = body && typeof body === "object"
+    ? (body as { subscriptionStatus?: unknown }).subscriptionStatus
+    : null;
+  if (
+    typeof subscriptionStatus !== "string"
+    || !subscriptionStatuses.includes(subscriptionStatus as SubscriptionStatus)
+  ) {
+    return errorResponse("حالة الاشتراك غير صالحة.", 400);
   }
 
-  let adminContext;
   try {
-    adminContext = await requireApiSuperAdmin();
+    await requireApiSuperAdmin();
   } catch (error) {
     if (error instanceof ApiAuthError) {
       return errorResponse("غير موجود.", 404);
@@ -77,31 +72,28 @@ export async function PATCH(
   }
 
   try {
-    const admin = createAdminClient() as unknown as StatusRpcClient;
-    const { data, error } = await admin.rpc("owner_set_teacher_suspension", {
-      p_teacher_id: teacherId,
-      p_is_suspended: (body as { isSuspended: boolean }).isSuspended,
-      p_actor_id: adminContext.userId,
-    });
+    const admin = createAdminClient();
+    const { data, error } = await admin
+      .from("teachers")
+      .update({ subscription_status: subscriptionStatus as SubscriptionStatus })
+      .eq("id", teacherId)
+      .select("id, name, subscription_status")
+      .maybeSingle();
 
-    if (error) return errorResponse("تعذّر تحديث الحساب. تحقق من إعداد قاعدة البيانات.", 503);
-
-    const result = Array.isArray(data)
-      ? data[0] as StatusResult | undefined
-      : undefined;
-    if (!result) return errorResponse("المدرّس غير موجود.", 404);
+    if (error) return errorResponse("تعذّر تحديث الاشتراك. حاول مرة أخرى.", 503);
+    if (!data) return errorResponse("المدرّس غير موجود.", 404);
 
     return NextResponse.json(
       {
         teacher: {
-          id: result.teacher_id,
-          name: result.teacher_name,
-          isSuspended: result.is_suspended,
+          id: data.id,
+          name: data.name,
+          subscriptionStatus: data.subscription_status,
         },
       },
       { status: 200, headers: RESPONSE_HEADERS }
     );
   } catch {
-    return errorResponse("تعذّر تحديث الحساب. حاول مرة أخرى.", 500);
+    return errorResponse("تعذّر تحديث الاشتراك. حاول مرة أخرى.", 500);
   }
 }
