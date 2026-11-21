@@ -28,6 +28,11 @@ export interface AuthContext {
   teacherId: string;
 }
 
+export interface PlatformAdminContext {
+  userId: string;
+  email: string;
+}
+
 const ROLE_PERMISSIONS: Record<AppRole, readonly Permission[]> = {
   owner: [
     "dashboard.view",
@@ -147,6 +152,49 @@ export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
 
   return null;
 });
+
+export const getPlatformAdmin = cache(
+  async (): Promise<PlatformAdminContext | null> => {
+    const ownerEmail = process.env.OWNER_EMAIL?.trim().toLowerCase();
+    if (!ownerEmail) return null;
+
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user?.email) return null;
+    if (user.email.trim().toLowerCase() !== ownerEmail) return null;
+
+    const admin = createAdminClient();
+    const { data, error } = await admin
+      .from("platform_admins")
+      .select("user_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    return { userId: user.id, email: user.email };
+  }
+);
+
+/** Requires both the server-managed platform_admins membership and OWNER_EMAIL. */
+export async function requireSuperAdmin(): Promise<PlatformAdminContext> {
+  const platformAdmin = await getPlatformAdmin();
+  if (!platformAdmin) redirect("/owner/login");
+  return platformAdmin;
+}
+
+/** API guard. Returns the same non-enumerating denial for missing and non-owner sessions. */
+export async function requireApiSuperAdmin(): Promise<PlatformAdminContext> {
+  const platformAdmin = await getPlatformAdmin();
+  if (!platformAdmin) {
+    throw new ApiAuthError(403, "غير مصرح بتنفيذ هذا الإجراء.");
+  }
+  return platformAdmin;
+}
 
 /**
  * للصفحات (Server Components): يحوّل إلى /login إذا لم يكن المستخدم مسجّلًا.
