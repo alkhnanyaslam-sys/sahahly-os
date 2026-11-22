@@ -92,13 +92,20 @@ export async function POST(request: Request) {
     );
   }
 
-  const { data: existing } = await admin
+  const { data: existing, error: existingError } = await admin
     .from("submissions")
     .select("id")
     .eq("assessment_id", assessment_id)
     .eq("student_id", student.id)
     .limit(1)
     .maybeSingle();
+
+  if (existingError) {
+    return Response.json(
+      { error: "تعذر التحقق من حالة التسليم. حاول مرة أخرى." },
+      { status: 500 }
+    );
+  }
 
   if (existing) {
     return Response.json(
