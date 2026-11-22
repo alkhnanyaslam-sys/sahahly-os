@@ -83,7 +83,7 @@ async function optimizeImageForGrading(file: File): Promise<File> {
     );
     if (!blob || blob.size >= file.size) return file;
 
-    const optimizedName = `${file.name.replace(/\\.[^.]+$/, "")}.jpg`;
+    const optimizedName = `${file.name.replace(/\.[^.]+$/, "")}.jpg`;
     return new File([blob], optimizedName, { type: "image/jpeg", lastModified: file.lastModified });
   } catch {
     return file;
