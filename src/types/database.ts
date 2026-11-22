@@ -69,6 +69,37 @@ export interface Student {
   created_at: string;
 }
 
+export interface Subject {
+  id: string;
+  language: string;
+  is_active: boolean;
+}
+
+export interface EducationGrade {
+  id: string;
+  stage_id: string;
+  has_tracks: boolean;
+}
+
+export interface EducationTrack {
+  id: string;
+  grade_id: string;
+}
+
+export interface StudentProfile {
+  user_id: string;
+  full_name: string;
+  age: number;
+  study_language: string;
+  subject_id: string;
+  whatsapp: string;
+  country: string;
+  system_id: string | null;
+  stage_id: string | null;
+  grade_id: string | null;
+  track_id: string | null;
+}
+
 export interface Assessment {
   id: string;
   teacher_id: string;
@@ -157,6 +188,19 @@ export interface Database {
       students: TableDef<
         Student,
         "teacher_id" | "student_code" | "name" | "parent_phone"
+      >;
+      subjects: TableDef<Subject, "language">;
+      education_grades: TableDef<EducationGrade>;
+      education_tracks: TableDef<EducationTrack>;
+      student_profiles: TableDef<
+        StudentProfile,
+        | "user_id"
+        | "full_name"
+        | "age"
+        | "study_language"
+        | "subject_id"
+        | "whatsapp"
+        | "country"
       >;
       assessments: TableDef<
         Assessment,
