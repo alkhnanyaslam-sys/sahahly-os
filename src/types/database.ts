@@ -100,6 +100,52 @@ export interface StudentProfile {
   track_id: string | null;
 }
 
+export type QuizSessionStatus =
+  | "generating"
+  | "ready"
+  | "in_progress"
+  | "submitted"
+  | "expired"
+  | "failed";
+
+export interface QuizQuestion {
+  id: number;
+  question: string;
+  options: string[];
+}
+
+export interface QuizAnswerKeyItem {
+  id: number;
+  correct_index: number;
+  explanation: string;
+}
+
+export interface QuizSession {
+  id: string;
+  user_id: string;
+  subject: string;
+  topic: string | null;
+  language: string;
+  difficulty: "easy" | "medium" | "hard";
+  num_questions: number;
+  time_limit_minutes: number;
+  status: QuizSessionStatus;
+  questions: QuizQuestion[];
+  answers: Record<string, number> | null;
+  score: number | null;
+  source: "ai" | "mistakes";
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+}
+
+export interface QuizAnswerKey {
+  id: string;
+  session_id: string;
+  answer_key: QuizAnswerKeyItem[];
+  created_at: string;
+}
+
 export interface Assessment {
   id: string;
   teacher_id: string;
@@ -202,6 +248,16 @@ export interface Database {
         | "whatsapp"
         | "country"
       >;
+      quiz_sessions: TableDef<
+        QuizSession,
+        | "user_id"
+        | "subject"
+        | "language"
+        | "difficulty"
+        | "num_questions"
+        | "time_limit_minutes"
+      >;
+      quiz_answer_keys: TableDef<QuizAnswerKey, "session_id" | "answer_key">;
       assessments: TableDef<
         Assessment,
         "teacher_id" | "title" | "type" | "total_marks"
