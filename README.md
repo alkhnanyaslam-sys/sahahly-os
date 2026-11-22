@@ -21,20 +21,20 @@ Designed by Eslam sherif
 ### 1) تثبيت الحزم
 
 ```bash
-npm install
+pnpm install
 ```
 
-### 2) إنشاء مشروع Supabase
+### 2) تجهيز Supabase
 
-1. أنشئ مشروعًا جديدًا من [supabase.com](https://supabase.com).
-2. افتح **SQL Editor** والصق محتوى الملف `supabase/migrations/001_init.sql` ثم شغّله (أو استخدم `supabase db push`).
-3. من **Project Settings > API** انسخ: Project URL و anon key و service_role key.
-4. تأكد من وجود الحاويات الثلاث في **Storage**: `mark-schemes` و`raw-submissions` و`graded-pdfs` (ينشئها ملف الـ SQL تلقائيًا).
+1. أنشئ مشروعًا من [supabase.com](https://supabase.com).
+2. طبّق جميع ملفات `supabase/migrations/*.sql` بالترتيب الرقمي، وليس `001_init.sql` وحده؛ تسجيل الطلاب والكويزات يعتمدان على الترحيلات `006` و`007` و`008`. يمكن إدارة ذلك باستخدام Supabase CLI بعد ربط المشروع، أو تنفيذ الملفات بالترتيب من SQL Editor.
+3. من **Project Settings > API** جهّز Project URL و anon key و service_role key.
+4. تأكد من وجود حاويات Storage: `mark-schemes` و`raw-submissions` و`graded-pdfs` (تنشئها الترحيلات).
 
 ### 3) ضبط المتغيرات
 
 ```bash
-cp .env.example .env.local
+cp env.example .env.local
 ```
 
 املأ القيم في `.env.local`:
@@ -53,7 +53,7 @@ cp .env.example .env.local
 ### 4) التشغيل
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 افتح `http://localhost:3000`.

@@ -1,5 +1,5 @@
+import { generateText, Output } from "ai";
 import { z } from "zod";
-import { GoogleGenAI, Type } from "@google/genai";
 import { createAdminClient } from "@/lib/supabase/server";
 import { requireApiStudent, studentAuthErrorResponse } from "@/lib/student-auth";
 
@@ -23,38 +23,18 @@ const LANGUAGE_NAMES: Record<string, string> = {
   de: "Deutsch",
 };
 
-const generatedSchema = z.object({
-  questions: z
-    .array(
-      z.object({
-        question: z.string().min(3),
-        options: z.array(z.string().min(1)).length(4),
-        correct_index: z.number().int().min(0).max(3),
-        explanation: z.string().default(""),
-      })
-    )
-    .min(1),
+const questionSchema = z.object({
+  question: z.string().min(3),
+  options: z.array(z.string().min(1)).length(4),
+  correct_index: z.number().int().min(0).max(3),
+  explanation: z.string().default(""),
 });
 
-const responseSchema = {
-  type: Type.OBJECT,
-  properties: {
-    questions: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          question: { type: Type.STRING },
-          options: { type: Type.ARRAY, items: { type: Type.STRING } },
-          correct_index: { type: Type.INTEGER },
-          explanation: { type: Type.STRING },
-        },
-        required: ["question", "options", "correct_index", "explanation"],
-      },
-    },
-  },
-  required: ["questions"],
-};
+function generatedSchema(questionCount: number) {
+  return z.object({
+    questions: z.array(questionSchema).length(questionCount),
+  });
+}
 
 function sameOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
@@ -96,21 +76,20 @@ export async function POST(request: Request) {
   }
   const input = parsed.data;
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return Response.json({ error: "الخدمة غير مهيأة حاليًا." }, { status: 503 });
-  }
-
   const admin = createAdminClient();
 
   // الحد اليومي (بتوقيت UTC تقريبًا كفاية كبداية)
   const since = new Date();
   since.setUTCHours(0, 0, 0, 0);
-  const { count } = await admin
+  const { count, error: countError } = await admin
     .from("quiz_sessions")
     .select("id", { count: "exact", head: true })
     .eq("user_id", student.userId)
     .gte("created_at", since.toISOString());
+
+  if (countError) {
+    return Response.json({ error: "تعذر التحقق من حد الكويزات." }, { status: 500 });
+  }
 
   if ((count ?? 0) >= DAILY_LIMIT) {
     return Response.json(
@@ -165,23 +144,13 @@ export async function POST(request: Request) {
     .join("\n");
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema,
-        temperature: 0.7,
-      },
+    const { output: generated } = await generateText({
+      model: "google/gemini-3.8-flash",
+      output: Output.object({ schema: generatedSchema(input.num_questions) }),
+      prompt,
+      temperature: 0.7,
     });
-
-    const text = (response.text ?? "")
-      .trim()
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```$/i, "");
-    const generated = generatedSchema.parse(JSON.parse(text));
-    const items = generated.questions.slice(0, input.num_questions);
+    const items = generated.questions;
 
     const publicQuestions = items.map((q, index) => ({
       id: index + 1,
